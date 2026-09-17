@@ -36,7 +36,7 @@ function main() {
     const finalize = () => {
       if (finalized) return;
       finalized = true;
-      controller.logStream.end();
+      controller.logStream.end(() => process.exit(process.exitCode || 0));
     };
     const forcedShutdownTimer = setTimeout(() => {
       for (const socket of sockets) socket.destroy();

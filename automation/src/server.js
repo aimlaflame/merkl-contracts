@@ -15,7 +15,7 @@ function parseBody(req) {
         rejected = true;
         req.removeAllListeners('data');
         req.removeAllListeners('end');
-        req.resume();
+        req.destroy();
         reject(tooLarge);
         return;
       }
@@ -35,7 +35,7 @@ function parseBody(req) {
   });
 }
 
-function htmlDashboard() {
+function htmlDashboard(csrfToken) {
   return `<!doctype html>
 <html>
 <head>
@@ -73,7 +73,9 @@ function htmlDashboard() {
         document.getElementById('key').value='';
       }
       const key=cachedApiKey;
-      const res=await fetch(path,{method,headers:{'content-type':'application/json','x-api-key':key},body:body?JSON.stringify(body):undefined});
+      const headers={'content-type':'application/json','x-api-key':key};
+      if(method!=='GET') headers['x-csrf-token']='${csrfToken}';
+      const res=await fetch(path,{method,headers,body:body?JSON.stringify(body):undefined});
       const raw=await res.text();
       let data={};
       if(raw){
@@ -103,6 +105,26 @@ function htmlDashboard() {
 }
 
 function createServer(controller, config) {
+  const csrfTokens = new Set();
+
+  function issueCsrfToken() {
+    const token = `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    csrfTokens.add(token);
+    if (csrfTokens.size > 500) {
+      const first = csrfTokens.values().next().value;
+      csrfTokens.delete(first);
+    }
+    return token;
+  }
+
+  function verifyCsrf(req) {
+    const methodNeedsCsrf = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method || '');
+    if (!methodNeedsCsrf) return true;
+    if (!req.headers.origin) return true;
+    const token = req.headers['x-csrf-token'];
+    return typeof token === 'string' && csrfTokens.has(token);
+  }
+
   function roleFor(req) {
     const key = req.headers['x-api-key'];
     if (typeof key !== 'string') return null;
@@ -125,8 +147,15 @@ function createServer(controller, config) {
     try {
       if (req.method === 'GET' && req.url === '/') {
         if (!requireRole(req, res, ['admin', 'viewer'])) return;
+        const csrfToken = issueCsrfToken();
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        res.end(htmlDashboard());
+        res.end(htmlDashboard(csrfToken));
+        return;
+      }
+
+      if (!verifyCsrf(req)) {
+        res.writeHead(403, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'csrf_validation_failed' }));
         return;
       }
 

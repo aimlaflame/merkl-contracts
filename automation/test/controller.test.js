@@ -154,7 +154,9 @@ test('controller self-corrects with cooldown and learns after success', async ()
   controller.setMode('manual');
   controller.start();
 
-  controller.executionAgent.run = async () => ({ results: [{ strategyId: 'strat', status: 'skipped', reason: 'command_not_allowed' }] });
+  controller.executionAgent.run = async () => {
+    throw new Error('execution failed');
+  };
   await controller.runCycle('t1');
   await controller.runCycle('t2');
 
@@ -180,4 +182,15 @@ test('reset learning clears persisted file contents', () => {
   controller.resetLearning();
   const after = JSON.parse(fs.readFileSync(controller.config.observability.learningStatePath, 'utf8'));
   assert.equal(Object.keys(after.strategies).length, 0);
+});
+
+test('all skipped execution does not count as success', async () => {
+  const controller = new AutopilotController(makeConfig());
+  controller.executionAgent.run = async () => ({ results: [{ strategyId: 'strat', status: 'skipped', reason: 'command_not_allowed' }] });
+  controller.setMode('manual');
+  controller.start();
+
+  const run = await controller.runCycle('skip_case');
+  assert.equal(run.status, 'skipped');
+  assert.equal(controller.state.counters.success, 0);
 });

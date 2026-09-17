@@ -240,3 +240,17 @@ test('malformed alert id returns 400', async () => {
     server.close();
   }
 });
+
+test('state-changing request with origin requires csrf token', async () => {
+  const { controller, server, base } = await setup();
+  try {
+    const resp = await fetch(`${base}/start`, {
+      method: 'POST',
+      headers: { 'x-api-key': 'admin', origin: 'https://example.com' },
+    });
+    assert.equal(resp.status, 403);
+  } finally {
+    controller.stop();
+    server.close();
+  }
+});

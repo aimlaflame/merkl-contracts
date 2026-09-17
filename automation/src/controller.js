@@ -240,6 +240,8 @@ class AutopilotController {
 
       if (result.status === 'executed' || result.status === 'simulated') {
         this.learningStore.recordOutcome(entry.strategyId, 'success');
+      } else if (result.status === 'skipped') {
+        this.learningStore.recordOutcome(entry.strategyId, 'skipped', { error: result.reason || null });
       } else {
         this.learningStore.recordOutcome(entry.strategyId, 'failed', { error: result.reason || fallbackError || 'execution_failed' });
       }
@@ -321,6 +323,16 @@ class AutopilotController {
             simulationOnly: this.config.execution.mode !== 'live',
           });
           run.steps.push({ step: 'execution', results: execution.results });
+          const executed = execution.results.some(item => item.status === 'executed' || item.status === 'simulated');
+          if (!executed) {
+            this.applyLearningFromResults(allocation, 'failed', execution.results, 'all_execution_steps_skipped');
+            run.status = 'skipped';
+            run.finishedAt = new Date().toISOString();
+            run.steps.push({ step: 'skipped', reason: 'all_execution_steps_skipped' });
+            this.auditLog('run.skipped', { runId: run.id, trigger, attempts: attempt });
+            break;
+          }
+
           this.applyLearningFromResults(allocation, 'success', execution.results);
           run.status = 'success';
           run.finishedAt = new Date().toISOString();

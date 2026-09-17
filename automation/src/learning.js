@@ -45,9 +45,10 @@ class StrategyLearningStore {
       totalSuccess: 0,
       totalFailed: 0,
       totalBlocked: 0,
+      totalSkipped: 0,
       lastOutcome: null,
       lastError: null,
-      updatedAt: new Date().toISOString(),
+      updatedAt: null,
     };
   }
 
@@ -90,6 +91,8 @@ class StrategyLearningStore {
     } else if (outcome === 'blocked') {
       entry.totalBlocked += 1;
       entry.confidence = Math.max(adaptive.minConfidence, Number((entry.confidence - adaptive.blockedStep).toFixed(4)));
+    } else if (outcome === 'skipped') {
+      entry.totalSkipped += 1;
     } else {
       entry.totalFailed += 1;
       entry.consecutiveFailures += 1;
