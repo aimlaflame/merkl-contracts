@@ -1,4 +1,5 @@
 const http = require('node:http');
+const crypto = require('node:crypto');
 
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -35,7 +36,7 @@ function parseBody(req) {
   });
 }
 
-function htmlDashboard(csrfToken) {
+function htmlDashboard() {
   return `<!doctype html>
 <html>
 <head>
@@ -74,7 +75,10 @@ function htmlDashboard(csrfToken) {
       }
       const key=cachedApiKey;
       const headers={'content-type':'application/json','x-api-key':key};
-      if(method!=='GET') headers['x-csrf-token']='${csrfToken}';
+      if(method!=='GET'){
+        const csrf=await req('/csrf');
+        headers['x-csrf-token']=csrf.token;
+      }
       const res=await fetch(path,{method,headers,body:body?JSON.stringify(body):undefined});
       const raw=await res.text();
       let data={};
@@ -108,7 +112,7 @@ function createServer(controller, config) {
   const csrfTokens = new Set();
 
   function issueCsrfToken() {
-    const token = `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    const token = crypto.randomUUID();
     csrfTokens.add(token);
     if (csrfTokens.size > 500) {
       const first = csrfTokens.values().next().value;
@@ -120,9 +124,11 @@ function createServer(controller, config) {
   function verifyCsrf(req) {
     const methodNeedsCsrf = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method || '');
     if (!methodNeedsCsrf) return true;
-    if (!req.headers.origin) return true;
+    if (!req.headers.origin && !req.headers.referer) return true;
     const token = req.headers['x-csrf-token'];
-    return typeof token === 'string' && csrfTokens.has(token);
+    if (typeof token !== 'string' || !csrfTokens.has(token)) return false;
+    csrfTokens.delete(token);
+    return true;
   }
 
   function roleFor(req) {
@@ -147,9 +153,16 @@ function createServer(controller, config) {
     try {
       if (req.method === 'GET' && req.url === '/') {
         if (!requireRole(req, res, ['admin', 'viewer'])) return;
-        const csrfToken = issueCsrfToken();
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        res.end(htmlDashboard(csrfToken));
+        res.end(htmlDashboard());
+        return;
+      }
+
+      if (req.method === 'GET' && req.url === '/csrf') {
+        if (!requireRole(req, res, ['admin', 'viewer'])) return;
+        const token = issueCsrfToken();
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ token }));
         return;
       }
 

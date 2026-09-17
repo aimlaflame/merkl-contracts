@@ -40,8 +40,8 @@ function main() {
     };
     const forcedShutdownTimer = setTimeout(() => {
       for (const socket of sockets) socket.destroy();
+      process.exitCode = process.exitCode || 1;
       finalize();
-      process.exit(process.exitCode || 1);
     }, 5000);
     forcedShutdownTimer.unref();
     server.close(() => {

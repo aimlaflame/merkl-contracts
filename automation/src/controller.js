@@ -325,7 +325,7 @@ class AutopilotController {
           run.steps.push({ step: 'execution', results: execution.results });
           const executed = execution.results.some(item => item.status === 'executed' || item.status === 'simulated');
           if (!executed) {
-            this.applyLearningFromResults(allocation, 'failed', execution.results, 'all_execution_steps_skipped');
+            this.applyLearningFromResults(allocation, 'skipped', execution.results, 'all_execution_steps_skipped');
             run.status = 'skipped';
             run.finishedAt = new Date().toISOString();
             run.steps.push({ step: 'skipped', reason: 'all_execution_steps_skipped' });
