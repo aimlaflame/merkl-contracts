@@ -96,11 +96,9 @@ class ExecutionAgent {
   }
 
   childEnv() {
-    const env = {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      NODE_ENV: process.env.NODE_ENV,
-    };
+    const env = { ...process.env };
+    delete env.AUTOPILOT_ADMIN_API_KEYS;
+    delete env.AUTOPILOT_VIEWER_API_KEYS;
     const hotKey = this.executionConfig.hotSignerEnvVar;
     const coldKey = this.executionConfig.coldSignerAddressEnvVar;
     if (hotKey && process.env[hotKey]) env[hotKey] = process.env[hotKey];

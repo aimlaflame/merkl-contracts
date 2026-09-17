@@ -41,7 +41,9 @@ function main() {
     const forcedShutdownTimer = setTimeout(() => {
       for (const socket of sockets) socket.destroy();
       finalize();
+      process.exit(process.exitCode || 1);
     }, 5000);
+    forcedShutdownTimer.unref();
     server.close(() => {
       clearTimeout(forcedShutdownTimer);
       for (const socket of sockets) socket.destroy();

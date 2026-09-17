@@ -13,6 +13,9 @@ function parseBody(req) {
         const tooLarge = new Error('Request body too large');
         tooLarge.statusCode = 413;
         rejected = true;
+        req.removeAllListeners('data');
+        req.removeAllListeners('end');
+        req.resume();
         reject(tooLarge);
         return;
       }
@@ -49,7 +52,7 @@ function htmlDashboard() {
 <body>
   <h2>Merkl Autopilot Control</h2>
   <label for="key">API key</label>
-  <div class="row"><input id="key" placeholder="API key" style="width:100%"/></div>
+  <div class="row"><input id="key" type="password" placeholder="API key" style="width:100%"/></div>
   <div id="sr-status" role="status" aria-live="polite"></div>
   <div class="row">
     <button id="start-btn">Start</button>
@@ -63,8 +66,13 @@ function htmlDashboard() {
   <pre id="out">Loading...</pre>
   <script>
     function announce(message){document.getElementById('sr-status').textContent=message;}
+    let cachedApiKey='';
     async function req(path, method='GET', body){
-      const key=document.getElementById('key').value.trim();
+      if(!cachedApiKey){
+        cachedApiKey=document.getElementById('key').value.trim();
+        document.getElementById('key').value='';
+      }
+      const key=cachedApiKey;
       const res=await fetch(path,{method,headers:{'content-type':'application/json','x-api-key':key},body:body?JSON.stringify(body):undefined});
       const raw=await res.text();
       let data={};
@@ -198,7 +206,14 @@ function createServer(controller, config) {
       const alertAckMatch = req.method === 'POST' ? req.url.match(/^\/alerts\/([^/]+)\/ack$/) : null;
       if (alertAckMatch) {
         if (!requireRole(req, res, ['admin'])) return;
-        const id = decodeURIComponent(alertAckMatch[1]);
+        let id;
+        try {
+          id = decodeURIComponent(alertAckMatch[1]);
+        } catch (_error) {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'invalid_alert_id' }));
+          return;
+        }
         const ok = controller.acknowledgeAlert(id);
         res.writeHead(ok ? 200 : 404, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ok }));

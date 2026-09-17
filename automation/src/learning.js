@@ -59,14 +59,18 @@ class StrategyLearningStore {
     return this.state.strategies[strategyId];
   }
 
+  peek(strategyId) {
+    return this.state.strategies[strategyId] || this.defaults();
+  }
+
   isCoolingDown(strategyId, now = Date.now()) {
-    const entry = this.get(strategyId);
+    const entry = this.peek(strategyId);
     if (!entry.cooldownUntil) return false;
     return new Date(entry.cooldownUntil).getTime() > now;
   }
 
   effectiveConfidence(strategyId) {
-    const entry = this.get(strategyId);
+    const entry = this.peek(strategyId);
     return entry.confidence;
   }
 

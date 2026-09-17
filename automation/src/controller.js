@@ -201,13 +201,16 @@ class AutopilotController {
   }
 
   buildAdaptiveStrategies() {
+    if (!this.config.adaptive.enabled) {
+      return this.config.strategies.map(strategy => ({ ...strategy, adaptiveConfidence: 1 }));
+    }
     const now = Date.now();
     return this.config.strategies
       .map(strategy => {
-        const learning = this.learningStore.get(strategy.id);
-        const coolingDown = this.config.adaptive.enabled && this.learningStore.isCoolingDown(strategy.id, now);
+        const learning = this.learningStore.peek(strategy.id);
+        const coolingDown = this.learningStore.isCoolingDown(strategy.id, now);
         if (coolingDown) return null;
-        const confidence = this.config.adaptive.enabled ? this.learningStore.effectiveConfidence(strategy.id) : 1;
+        const confidence = this.learningStore.effectiveConfidence(strategy.id);
         const adjustedAprBps = Math.max(0, Math.round(strategy.expectedAprBps * confidence));
         return {
           ...strategy,
@@ -290,6 +293,14 @@ class AutopilotController {
           const allocation = this.allocationAgent.run(opportunities, this.config.policy);
           lastAllocation = allocation;
           run.steps.push({ step: 'allocation', count: allocation.allocations.length });
+          const executableAllocations = allocation.allocations.filter(item => item.capitalUsd > 0);
+          if (executableAllocations.length === 0) {
+            run.status = 'idle';
+            run.finishedAt = new Date().toISOString();
+            run.steps.push({ step: 'idle', reason: 'no_positive_allocations' });
+            this.auditLog('run.idle', { runId: run.id, trigger });
+            break;
+          }
 
           const guard = this.guardrailAgent.run({ market, allocations: allocation.allocations }, this.config.policy);
           run.steps.push({ step: 'guardrail', approved: guard.approved, reasons: guard.reasons });
@@ -306,7 +317,7 @@ class AutopilotController {
           }
 
           executionAttempted = true;
-          const execution = await this.executionAgent.run(allocation.allocations, {
+          const execution = await this.executionAgent.run(executableAllocations, {
             simulationOnly: this.config.execution.mode !== 'live',
           });
           run.steps.push({ step: 'execution', results: execution.results });

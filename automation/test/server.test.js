@@ -226,3 +226,17 @@ test('learning reset endpoint clears learning state', async () => {
     server.close();
   }
 });
+
+test('malformed alert id returns 400', async () => {
+  const { controller, server, base } = await setup();
+  try {
+    const resp = await fetch(`${base}/alerts/%E0%A4%A/ack`, {
+      method: 'POST',
+      headers: { 'x-api-key': 'admin' },
+    });
+    assert.equal(resp.status, 400);
+  } finally {
+    controller.stop();
+    server.close();
+  }
+});
