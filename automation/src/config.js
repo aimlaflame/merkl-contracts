@@ -16,10 +16,19 @@ const DEFAULTS = {
   mode: 'dry-run',
 };
 
-function parseNumber(value, fallback) {
+function parseNumber(value, fallback, name, options = {}) {
   if (value === undefined || value === null || value === '') return fallback;
   const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
+  if (!Number.isFinite(n)) {
+    throw new Error(`${name} must be numeric`);
+  }
+  if (options.integer && !Number.isInteger(n)) {
+    throw new Error(`${name} must be an integer`);
+  }
+  if (options.min !== undefined && n < options.min) {
+    throw new Error(`${name} must be >= ${options.min}`);
+  }
+  return n;
 }
 
 function parseKeys(value) {
@@ -49,17 +58,40 @@ function loadConfig(rootDir) {
   const config = {
     scheduler: {
       dailyRunAtUtc: process.env.AUTOPILOT_DAILY_RUN_UTC || DEFAULTS.dailyRunAtUtc,
-      maxAttempts: parseNumber(process.env.AUTOPILOT_RETRY_ATTEMPTS, DEFAULTS.maxAttempts),
-      backoffMs: parseNumber(process.env.AUTOPILOT_RETRY_BACKOFF_MS, DEFAULTS.backoffMs),
+      maxAttempts: parseNumber(process.env.AUTOPILOT_RETRY_ATTEMPTS, DEFAULTS.maxAttempts, 'AUTOPILOT_RETRY_ATTEMPTS', {
+        integer: true,
+        min: 1,
+      }),
+      backoffMs: parseNumber(process.env.AUTOPILOT_RETRY_BACKOFF_MS, DEFAULTS.backoffMs, 'AUTOPILOT_RETRY_BACKOFF_MS', {
+        integer: true,
+        min: 0,
+      }),
     },
     policy: {
-      maxGasGwei: parseNumber(process.env.AUTOPILOT_MAX_GAS_GWEI, DEFAULTS.maxGasGwei),
-      maxSlippageBps: parseNumber(process.env.AUTOPILOT_MAX_SLIPPAGE_BPS, DEFAULTS.maxSlippageBps),
-      maxDrawdownBps: parseNumber(process.env.AUTOPILOT_MAX_DRAWDOWN_BPS, DEFAULTS.maxDrawdownBps),
-      totalCapitalUsd: parseNumber(process.env.AUTOPILOT_TOTAL_CAPITAL_USD, DEFAULTS.totalCapitalUsd),
+      maxGasGwei: parseNumber(process.env.AUTOPILOT_MAX_GAS_GWEI, DEFAULTS.maxGasGwei, 'AUTOPILOT_MAX_GAS_GWEI', { min: 0 }),
+      maxSlippageBps: parseNumber(
+        process.env.AUTOPILOT_MAX_SLIPPAGE_BPS,
+        DEFAULTS.maxSlippageBps,
+        'AUTOPILOT_MAX_SLIPPAGE_BPS',
+        { min: 0 },
+      ),
+      maxDrawdownBps: parseNumber(
+        process.env.AUTOPILOT_MAX_DRAWDOWN_BPS,
+        DEFAULTS.maxDrawdownBps,
+        'AUTOPILOT_MAX_DRAWDOWN_BPS',
+        { min: 0 },
+      ),
+      totalCapitalUsd: parseNumber(
+        process.env.AUTOPILOT_TOTAL_CAPITAL_USD,
+        DEFAULTS.totalCapitalUsd,
+        'AUTOPILOT_TOTAL_CAPITAL_USD',
+        { min: 0 },
+      ),
       maxCapitalPerStrategyUsd: parseNumber(
         process.env.AUTOPILOT_MAX_CAPITAL_PER_STRATEGY_USD,
         DEFAULTS.maxCapitalPerStrategyUsd,
+        'AUTOPILOT_MAX_CAPITAL_PER_STRATEGY_USD',
+        { min: 0 },
       ),
     },
     execution: {
@@ -70,7 +102,7 @@ function loadConfig(rootDir) {
     },
     api: {
       host: process.env.AUTOPILOT_HOST || DEFAULTS.host,
-      port: parseNumber(process.env.AUTOPILOT_PORT, DEFAULTS.port),
+      port: parseNumber(process.env.AUTOPILOT_PORT, DEFAULTS.port, 'AUTOPILOT_PORT', { integer: true, min: 1 }),
       adminApiKeys: parseKeys(process.env.AUTOPILOT_ADMIN_API_KEYS),
       viewerApiKeys: parseKeys(process.env.AUTOPILOT_VIEWER_API_KEYS),
     },
@@ -99,7 +131,7 @@ function validateConfig(config) {
     throw new Error('Configure AUTOPILOT_ADMIN_API_KEYS');
   }
   if (config.api.viewerApiKeys.length === 0) {
-    throw new Error('Configure AUTOPILOT_VIEWER_API_KEYS');
+    config.api.viewerApiKeys = [...config.api.adminApiKeys];
   }
 }
 

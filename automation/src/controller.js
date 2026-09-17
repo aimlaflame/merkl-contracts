@@ -32,6 +32,7 @@ class AutopilotController {
       paused: true,
       mode: 'manual',
       startedAt: null,
+      resumedAt: null,
       scheduler: { active: false, nextRunAt: null },
       runs: [],
       alerts: [],
@@ -126,7 +127,8 @@ class AutopilotController {
 
   start() {
     this.state.paused = false;
-    this.state.startedAt = new Date().toISOString();
+    this.state.startedAt = this.state.startedAt || new Date().toISOString();
+    this.state.resumedAt = new Date().toISOString();
     this.state.health.status = 'running';
     this.state.health.lastHeartbeatAt = new Date().toISOString();
     this.auditLog('controller.started');

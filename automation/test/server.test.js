@@ -134,3 +134,59 @@ test('health endpoint returns 503 when paused and 200 when running', async () =>
     server.close();
   }
 });
+
+test('run-now succeeds when started', async () => {
+  const { controller, server, base } = await setup();
+  try {
+    controller.config.strategies = [
+      {
+        id: 's1',
+        chainId: 1,
+        protocol: 'uniswap',
+        expectedAprBps: 1200,
+        riskScore: 10,
+        maxCapitalUsd: 1000,
+        action: { file: 'node', args: ['-e', 'console.log(1)'] },
+      },
+    ];
+    const start = await fetch(`${base}/start`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    assert.equal(start.status, 200);
+    const run = await fetch(`${base}/run-now`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    assert.equal(run.status, 200);
+  } finally {
+    controller.stop();
+    server.close();
+  }
+});
+
+test('run-now overlap returns conflict', async () => {
+  const { controller, server, base } = await setup();
+  try {
+    controller.config.strategies = [
+      {
+        id: 's2',
+        chainId: 1,
+        protocol: 'uniswap',
+        expectedAprBps: 1200,
+        riskScore: 10,
+        maxCapitalUsd: 1000,
+        action: { file: 'node', args: ['-e', 'console.log(2)'] },
+      },
+    ];
+    controller.executionAgent.run = async (...args) => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      return { results: [], executedAt: new Date().toISOString(), args };
+    };
+
+    await fetch(`${base}/start`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    const firstPromise = fetch(`${base}/run-now`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    const second = await fetch(`${base}/run-now`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    assert.equal(second.status, 409);
+    const first = await firstPromise;
+    assert.equal(first.status, 200);
+  } finally {
+    controller.stop();
+    server.close();
+  }
+});

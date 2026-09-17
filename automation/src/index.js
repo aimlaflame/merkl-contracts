@@ -29,13 +29,14 @@ function main() {
   const shutdown = signal => {
     if (shuttingDown) return;
     shuttingDown = true;
+    process.exitCode = signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 1;
     controller.auditLog('server.shutdown', { signal });
     controller.stop(`signal_${signal}`);
     let finalized = false;
     const finalize = () => {
       if (finalized) return;
       finalized = true;
-      controller.logStream.end(() => process.exit(0));
+      controller.logStream.end();
     };
     const forcedShutdownTimer = setTimeout(() => {
       for (const socket of sockets) socket.destroy();

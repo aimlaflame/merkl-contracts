@@ -119,11 +119,11 @@ class ExecutionAgent {
       child.stdout.on('data', chunk => out.push(chunk));
       child.stderr.on('data', chunk => err.push(chunk));
       child.on('error', error => reject(error));
-      child.on('close', code => {
+      child.on('close', (code, signal) => {
         if (code !== 0) {
           const stderr = Buffer.concat(err).toString('utf8').trim();
           const stdout = Buffer.concat(out).toString('utf8').trim();
-          reject(new Error(stderr || stdout || `Command failed with code ${code}`));
+          reject(new Error(stderr || stdout || `Command failed with ${signal ? `signal ${signal}` : `code ${code}`}`));
           return;
         }
         resolve(Buffer.concat(out).toString('utf8').trim());

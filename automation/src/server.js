@@ -5,13 +5,15 @@ function parseBody(req) {
     const chunks = [];
     let totalLength = 0;
     const maxLength = 1024 * 32;
+    let rejected = false;
     req.on('data', chunk => {
+      if (rejected) return;
       totalLength += chunk.length;
       if (totalLength > maxLength) {
         const tooLarge = new Error('Request body too large');
         tooLarge.statusCode = 413;
+        rejected = true;
         reject(tooLarge);
-        req.destroy();
         return;
       }
       chunks.push(chunk);
@@ -48,16 +50,18 @@ function htmlDashboard() {
   <h2>Merkl Autopilot Control</h2>
   <label for="key">API key</label>
   <div class="row"><input id="key" placeholder="API key" style="width:100%"/></div>
+  <div id="sr-status" role="status" aria-live="polite"></div>
   <div class="row">
-    <button onclick="act('/start')">Start</button>
-    <button onclick="act('/stop')">Stop</button>
-    <button onclick="act('/run-now')">Run now</button>
-    <button onclick="setMode('auto')">Mode auto</button>
-    <button onclick="setMode('manual')">Mode manual</button>
-    <button onclick="load()">Refresh</button>
+    <button id="start-btn">Start</button>
+    <button id="stop-btn">Stop</button>
+    <button id="run-btn">Run now</button>
+    <button id="mode-auto-btn">Mode auto</button>
+    <button id="mode-manual-btn">Mode manual</button>
+    <button id="refresh-btn">Refresh</button>
   </div>
   <pre id="out">Loading...</pre>
   <script>
+    function announce(message){document.getElementById('sr-status').textContent=message;}
     async function req(path, method='GET', body){
       const key=document.getElementById('key').value.trim();
       const res=await fetch(path,{method,headers:{'content-type':'application/json','x-api-key':key},body:body?JSON.stringify(body):undefined});
@@ -66,11 +70,17 @@ function htmlDashboard() {
       return data;
     }
     async function load(){
-      try{document.getElementById('out').textContent=JSON.stringify(await req('/status'),null,2)}
-      catch(e){document.getElementById('out').textContent=e.message}
+      try{document.getElementById('out').textContent=JSON.stringify(await req('/status'),null,2);announce('Status loaded');}
+      catch(e){document.getElementById('out').textContent=e.message;announce('Request failed: '+e.message);}
     }
-    async function act(path){await req(path,'POST');await load();}
-    async function setMode(mode){await req('/mode','POST',{mode});await load();}
+    async function act(path){await req(path,'POST');announce('Action completed');await load();}
+    async function setMode(mode){await req('/mode','POST',{mode});announce('Mode updated to '+mode);await load();}
+    document.getElementById('start-btn').addEventListener('click',()=>act('/start'));
+    document.getElementById('stop-btn').addEventListener('click',()=>act('/stop'));
+    document.getElementById('run-btn').addEventListener('click',()=>act('/run-now'));
+    document.getElementById('mode-auto-btn').addEventListener('click',()=>setMode('auto'));
+    document.getElementById('mode-manual-btn').addEventListener('click',()=>setMode('manual'));
+    document.getElementById('refresh-btn').addEventListener('click',load);
     load();
   </script>
 </body>
