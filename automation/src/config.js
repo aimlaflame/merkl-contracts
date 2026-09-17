@@ -98,6 +98,9 @@ function validateConfig(config) {
   if (config.api.adminApiKeys.length === 0) {
     throw new Error('Configure AUTOPILOT_ADMIN_API_KEYS');
   }
+  if (config.api.viewerApiKeys.length === 0) {
+    throw new Error('Configure AUTOPILOT_VIEWER_API_KEYS');
+  }
 }
 
 module.exports = {

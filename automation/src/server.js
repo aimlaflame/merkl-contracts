@@ -3,7 +3,19 @@ const http = require('node:http');
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
+    let totalLength = 0;
+    const maxLength = 1024 * 32;
+    req.on('data', chunk => {
+      totalLength += chunk.length;
+      if (totalLength > maxLength) {
+        const tooLarge = new Error('Request body too large');
+        tooLarge.statusCode = 413;
+        reject(tooLarge);
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => {
       if (chunks.length === 0) return resolve({});
       try {

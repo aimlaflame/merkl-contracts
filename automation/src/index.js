@@ -31,13 +31,19 @@ function main() {
     shuttingDown = true;
     controller.auditLog('server.shutdown', { signal });
     controller.stop(`signal_${signal}`);
+    let finalized = false;
+    const finalize = () => {
+      if (finalized) return;
+      finalized = true;
+      controller.logStream.end(() => process.exit(0));
+    };
     const forcedShutdownTimer = setTimeout(() => {
       for (const socket of sockets) socket.destroy();
-      controller.logStream.end(() => process.exit(0));
+      finalize();
     }, 5000);
     server.close(() => {
       clearTimeout(forcedShutdownTimer);
-      controller.logStream.end(() => process.exit(0));
+      finalize();
     });
   };
 

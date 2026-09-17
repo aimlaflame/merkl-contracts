@@ -4,7 +4,7 @@ const path = require('node:path');
 const { AutopilotController } = require('../src/controller');
 
 function makeConfig(overrides = {}) {
-  return {
+  const base = {
     scheduler: { dailyRunAtUtc: '08:00', maxAttempts: 1, backoffMs: 1 },
     policy: {
       maxGasGwei: 30,
@@ -29,10 +29,17 @@ function makeConfig(overrides = {}) {
         expectedAprBps: 1500,
         riskScore: 10,
         maxCapitalUsd: 2000,
-        action: { type: 'command', command: 'yarn foundry:script noop' },
+        action: { type: 'command', file: 'yarn', args: ['foundry:script', 'noop'] },
       },
     ],
+  };
+  return {
+    ...base,
     ...overrides,
+    execution: {
+      ...base.execution,
+      ...(overrides.execution || {}),
+    },
   };
 }
 

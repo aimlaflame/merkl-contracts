@@ -74,13 +74,15 @@ class ExecutionAgent {
     this.auditLog = auditLog;
   }
 
-  parseCommand(command) {
-    const tokens = command.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
-    return tokens.map(token => token.replace(/^"|"$/g, ''));
+  parseAllowlist(prefix) {
+    return prefix
+      .split(/\s+/)
+      .map(token => token.trim())
+      .filter(Boolean);
   }
 
   isAuthorized(tokens) {
-    const allowlists = this.executionConfig.allowedCommandPrefixes.map(prefix => this.parseCommand(prefix));
+    const allowlists = this.executionConfig.allowedCommandPrefixes.map(prefix => this.parseAllowlist(prefix));
     return allowlists.some(allowed => {
       if (allowed.length === 0 || tokens.length < allowed.length) return false;
       return allowed.every((token, i) => token === tokens[i]);
@@ -139,17 +141,27 @@ class ExecutionAgent {
       if (allocation.capitalUsd <= 0) continue;
       const action = allocation.action || {};
       const tokens =
-        typeof action.file === 'string'
-          ? [action.file, ...(Array.isArray(action.args) ? action.args.map(String) : [])]
-          : this.parseCommand(action.command || '');
-      const authorized = this.isAuthorized(tokens);
-      if (!authorized) {
-        results.push({ strategyId: allocation.strategyId, status: 'skipped', reason: 'command_not_allowed' });
+        typeof action.file === 'string' ? [action.file, ...(Array.isArray(action.args) ? action.args.map(String) : [])] : null;
+
+      if (this.executionConfig.mode === 'live' && !options.simulationOnly && !tokens) {
+        results.push({ strategyId: allocation.strategyId, status: 'skipped', reason: 'unstructured_command' });
         continue;
       }
 
-      if (this.executionConfig.mode === 'live' && !options.simulationOnly && typeof action.file !== 'string') {
-        results.push({ strategyId: allocation.strategyId, status: 'skipped', reason: 'unstructured_command' });
+      if (!tokens) {
+        results.push({
+          strategyId: allocation.strategyId,
+          status: 'simulated',
+          command: String(action.command || ''),
+          capitalUsd: allocation.capitalUsd,
+          note: 'simulation_only_unstructured_command',
+        });
+        continue;
+      }
+
+      const authorized = this.isAuthorized(tokens);
+      if (!authorized) {
+        results.push({ strategyId: allocation.strategyId, status: 'skipped', reason: 'command_not_allowed' });
         continue;
       }
 
