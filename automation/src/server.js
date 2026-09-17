@@ -109,13 +109,13 @@ function htmlDashboard() {
 }
 
 function createServer(controller, config) {
-  const csrfTokens = new Set();
+  const csrfTokens = new Map();
 
-  function issueCsrfToken() {
+  function issueCsrfToken(principal) {
     const token = crypto.randomUUID();
-    csrfTokens.add(token);
+    csrfTokens.set(token, principal);
     if (csrfTokens.size > 500) {
-      const first = csrfTokens.values().next().value;
+      const first = csrfTokens.keys().next().value;
       csrfTokens.delete(first);
     }
     return token;
@@ -124,9 +124,11 @@ function createServer(controller, config) {
   function verifyCsrf(req) {
     const methodNeedsCsrf = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method || '');
     if (!methodNeedsCsrf) return true;
-    if (!req.headers.origin && !req.headers.referer) return true;
+    const principal = req.headers['x-api-key'];
+    if (typeof principal !== 'string') return false;
     const token = req.headers['x-csrf-token'];
     if (typeof token !== 'string' || !csrfTokens.has(token)) return false;
+    if (csrfTokens.get(token) !== principal) return false;
     csrfTokens.delete(token);
     return true;
   }
@@ -152,15 +154,15 @@ function createServer(controller, config) {
   async function handle(req, res) {
     try {
       if (req.method === 'GET' && req.url === '/') {
-        if (!requireRole(req, res, ['admin', 'viewer'])) return;
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(htmlDashboard());
         return;
       }
 
       if (req.method === 'GET' && req.url === '/csrf') {
-        if (!requireRole(req, res, ['admin', 'viewer'])) return;
-        const token = issueCsrfToken();
+        const role = requireRole(req, res, ['admin', 'viewer']);
+        if (!role) return;
+        const token = issueCsrfToken(req.headers['x-api-key']);
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ token }));
         return;

@@ -49,14 +49,24 @@ async function setup() {
   return { controller, server, base };
 }
 
-test('dashboard endpoint requires auth', async () => {
+async function getCsrf(base, apiKey = 'admin') {
+  const resp = await fetch(`${base}/csrf`, { headers: { 'x-api-key': apiKey } });
+  const json = await resp.json();
+  return json.token;
+}
+
+async function postAuth(base, url, apiKey = 'admin', body) {
+  const csrf = await getCsrf(base, apiKey);
+  const headers = { 'x-api-key': apiKey, 'x-csrf-token': csrf };
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  return fetch(`${base}${url}`, { method: 'POST', headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+}
+
+test('dashboard endpoint is publicly accessible', async () => {
   const { controller, server, base } = await setup();
   try {
-    const noAuth = await fetch(`${base}/`);
-    assert.equal(noAuth.status, 401);
-
-    const withAuth = await fetch(`${base}/`, { headers: { 'x-api-key': 'viewer' } });
-    assert.equal(withAuth.status, 200);
+    const page = await fetch(`${base}/`);
+    assert.equal(page.status, 200);
   } finally {
     controller.stop();
     server.close();
@@ -68,17 +78,11 @@ test('only /alerts/:id/ack acknowledges alerts', async () => {
   try {
     const alert = controller.pushAlert('high', 'test alert');
 
-    const wrongRoute = await fetch(`${base}/alerts/${alert.id}`, {
-      method: 'POST',
-      headers: { 'x-api-key': 'admin' },
-    });
+    const wrongRoute = await postAuth(base, `/alerts/${alert.id}`);
     assert.equal(wrongRoute.status, 404);
     assert.equal(controller.state.alerts[0].acknowledged, false);
 
-    const ackRoute = await fetch(`${base}/alerts/${alert.id}/ack`, {
-      method: 'POST',
-      headers: { 'x-api-key': 'admin' },
-    });
+    const ackRoute = await postAuth(base, `/alerts/${alert.id}/ack`);
     assert.equal(ackRoute.status, 200);
     assert.equal(controller.state.alerts[0].acknowledged, true);
   } finally {
@@ -90,26 +94,19 @@ test('only /alerts/:id/ack acknowledges alerts', async () => {
 test('mode endpoint supports valid and invalid requests', async () => {
   const { controller, server, base } = await setup();
   try {
-    const startResp = await fetch(`${base}/start`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    const startResp = await postAuth(base, '/start');
     assert.equal(startResp.status, 200);
 
-    const valid = await fetch(`${base}/mode`, {
-      method: 'POST',
-      headers: { 'x-api-key': 'admin', 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: 'auto' }),
-    });
+    const valid = await postAuth(base, '/mode', 'admin', { mode: 'auto' });
     assert.equal(valid.status, 200);
 
-    const invalidMode = await fetch(`${base}/mode`, {
-      method: 'POST',
-      headers: { 'x-api-key': 'admin', 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: 'invalid' }),
-    });
+    const invalidMode = await postAuth(base, '/mode', 'admin', { mode: 'invalid' });
     assert.equal(invalidMode.status, 400);
 
+    const csrf = await getCsrf(base);
     const invalidJson = await fetch(`${base}/mode`, {
       method: 'POST',
-      headers: { 'x-api-key': 'admin', 'content-type': 'application/json' },
+      headers: { 'x-api-key': 'admin', 'x-csrf-token': csrf, 'content-type': 'application/json' },
       body: '{bad-json',
     });
     assert.equal(invalidJson.status, 400);
@@ -122,10 +119,7 @@ test('mode endpoint supports valid and invalid requests', async () => {
 test('run-now returns conflict while paused', async () => {
   const { controller, server, base } = await setup();
   try {
-    const resp = await fetch(`${base}/run-now`, {
-      method: 'POST',
-      headers: { 'x-api-key': 'admin' },
-    });
+    const resp = await postAuth(base, '/run-now');
     assert.equal(resp.status, 409);
   } finally {
     controller.stop();
@@ -139,7 +133,7 @@ test('health endpoint returns 503 when paused and 200 when running', async () =>
     const paused = await fetch(`${base}/health`);
     assert.equal(paused.status, 503);
 
-    await fetch(`${base}/start`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    await postAuth(base, '/start');
     const running = await fetch(`${base}/health`);
     assert.equal(running.status, 200);
   } finally {
@@ -162,9 +156,9 @@ test('run-now succeeds when started', async () => {
         action: { file: 'node', args: ['-e', 'console.log(1)'] },
       },
     ];
-    const start = await fetch(`${base}/start`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    const start = await postAuth(base, '/start');
     assert.equal(start.status, 200);
-    const run = await fetch(`${base}/run-now`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    const run = await postAuth(base, '/run-now');
     assert.equal(run.status, 200);
   } finally {
     controller.stop();
@@ -191,10 +185,10 @@ test('run-now overlap returns conflict', async () => {
       return { results: [], executedAt: new Date().toISOString(), args };
     };
 
-    await fetch(`${base}/start`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
-    const firstPromise = fetch(`${base}/run-now`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    await postAuth(base, '/start');
+    const firstPromise = postAuth(base, '/run-now');
     await new Promise(resolve => setTimeout(resolve, 5));
-    const second = await fetch(`${base}/run-now`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    const second = await postAuth(base, '/run-now');
     assert.equal(second.status, 409);
     const first = await firstPromise;
     assert.equal(first.status, 200);
@@ -212,10 +206,7 @@ test('learning reset endpoint clears learning state', async () => {
     const beforeJson = await before.json();
     assert.equal(Boolean(beforeJson.learning.strategies.seed), true);
 
-    const reset = await fetch(`${base}/learning/reset`, {
-      method: 'POST',
-      headers: { 'x-api-key': 'admin' },
-    });
+    const reset = await postAuth(base, '/learning/reset');
     assert.equal(reset.status, 200);
 
     const after = await fetch(`${base}/status`, { headers: { 'x-api-key': 'admin' } });
@@ -232,7 +223,7 @@ test('malformed alert id returns 400', async () => {
   try {
     const resp = await fetch(`${base}/alerts/%E0%A4%A/ack`, {
       method: 'POST',
-      headers: { 'x-api-key': 'admin' },
+      headers: { 'x-api-key': 'admin', 'x-csrf-token': await getCsrf(base) },
     });
     assert.equal(resp.status, 400);
   } finally {

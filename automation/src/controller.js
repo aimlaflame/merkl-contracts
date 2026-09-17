@@ -125,7 +125,8 @@ class AutopilotController {
     }
     this.state.mode = mode;
     if (mode === 'manual') this.stopScheduler();
-    if (mode === 'auto' && !this.state.paused) this.startScheduler();
+    if (mode === 'auto' && this.state.paused) this.start();
+    else if (mode === 'auto') this.startScheduler();
     this.auditLog('controller.mode_set', { mode });
   }
 
