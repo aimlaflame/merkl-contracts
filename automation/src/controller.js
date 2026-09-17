@@ -117,6 +117,7 @@ class AutopilotController {
     this.state.paused = false;
     this.state.startedAt = this.state.startedAt || new Date().toISOString();
     this.state.health.status = 'running';
+    this.state.health.lastHeartbeatAt = new Date().toISOString();
     this.auditLog('controller.started');
     if (this.state.mode === 'auto') this.startScheduler();
     return this.getStatus();
@@ -216,7 +217,9 @@ class AutopilotController {
           break;
         }
 
-        const execution = this.executionAgent.run(allocation.allocations, { simulationOnly: this.config.execution.mode !== 'live' });
+        const execution = await this.executionAgent.run(allocation.allocations, {
+          simulationOnly: this.config.execution.mode !== 'live',
+        });
         run.steps.push({ step: 'execution', results: execution.results });
         run.status = 'success';
         run.finishedAt = new Date().toISOString();

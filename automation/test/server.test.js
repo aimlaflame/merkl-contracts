@@ -37,7 +37,7 @@ async function setup() {
 }
 
 test('dashboard endpoint requires auth', async () => {
-  const { server, base } = await setup();
+  const { controller, server, base } = await setup();
   try {
     const noAuth = await fetch(`${base}/`);
     assert.equal(noAuth.status, 401);
@@ -45,6 +45,7 @@ test('dashboard endpoint requires auth', async () => {
     const withAuth = await fetch(`${base}/`, { headers: { 'x-api-key': 'viewer' } });
     assert.equal(withAuth.status, 200);
   } finally {
+    controller.stop();
     server.close();
   }
 });
@@ -68,6 +69,39 @@ test('only /alerts/:id/ack acknowledges alerts', async () => {
     assert.equal(ackRoute.status, 200);
     assert.equal(controller.state.alerts[0].acknowledged, true);
   } finally {
+    controller.stop();
+    server.close();
+  }
+});
+
+test('mode endpoint supports valid and invalid requests', async () => {
+  const { controller, server, base } = await setup();
+  try {
+    const startResp = await fetch(`${base}/start`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    assert.equal(startResp.status, 200);
+
+    const valid = await fetch(`${base}/mode`, {
+      method: 'POST',
+      headers: { 'x-api-key': 'admin', 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'auto' }),
+    });
+    assert.equal(valid.status, 200);
+
+    const invalidMode = await fetch(`${base}/mode`, {
+      method: 'POST',
+      headers: { 'x-api-key': 'admin', 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'invalid' }),
+    });
+    assert.equal(invalidMode.status, 400);
+
+    const invalidJson = await fetch(`${base}/mode`, {
+      method: 'POST',
+      headers: { 'x-api-key': 'admin', 'content-type': 'application/json' },
+      body: '{bad-json',
+    });
+    assert.equal(invalidJson.status, 400);
+  } finally {
+    controller.stop();
     server.close();
   }
 });

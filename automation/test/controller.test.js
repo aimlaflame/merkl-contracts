@@ -75,3 +75,17 @@ test('controller pauses after three consecutive execution failures', async () =>
   assert.equal(controller.state.consecutiveExecutionFailures, 3);
   assert.equal(controller.state.paused, true);
 });
+
+test('controller blocks and pauses when guardrail fails', async () => {
+  const controller = new AutopilotController(makeConfig());
+  controller.getMarketSnapshot = () => ({ gasGwei: 999, slippageBps: 20, drawdownBps: 100 });
+
+  controller.setMode('auto');
+  controller.start();
+  const run = await controller.runCycle('test_guardrail');
+
+  assert.equal(run.status, 'blocked');
+  assert.equal(controller.state.counters.failed, 1);
+  assert.equal(controller.state.paused, true);
+  assert.equal(controller.state.scheduler.active, false);
+});

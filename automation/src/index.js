@@ -12,9 +12,11 @@ function main() {
 
   const server = createServer(controller, config);
   server.listen(config.api.port, config.api.host, () => {
-    controller.auditLog('server.started', { host: config.api.host, port: config.api.port });
+    const address = server.address();
+    const boundPort = address && typeof address === 'object' ? address.port : config.api.port;
+    controller.auditLog('server.started', { host: config.api.host, port: boundPort });
     // eslint-disable-next-line no-console
-    console.log(`Merkl autopilot listening on http://${config.api.host}:${config.api.port}`);
+    console.log(`Merkl autopilot listening on http://${config.api.host}:${boundPort}`);
   });
 }
 

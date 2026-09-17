@@ -93,8 +93,17 @@ function createServer(controller, config) {
       }
 
       if (req.method === 'GET' && req.url === '/health') {
+        const ready = !controller.state.paused && controller.state.health.status === 'running';
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, heartbeatAt: controller.state.health.lastHeartbeatAt }));
+        res.end(
+          JSON.stringify({
+            ok: ready,
+            liveness: true,
+            readiness: ready,
+            status: controller.state.health.status,
+            heartbeatAt: controller.state.health.lastHeartbeatAt,
+          }),
+        );
         return;
       }
 

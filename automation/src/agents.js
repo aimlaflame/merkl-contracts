@@ -1,4 +1,4 @@
-const { execSync } = require('node:child_process');
+const { exec } = require('node:child_process');
 
 class OpportunityAgent {
   run(strategies) {
@@ -74,7 +74,39 @@ class ExecutionAgent {
     this.auditLog = auditLog;
   }
 
-  run(allocations, options = {}) {
+  childEnv() {
+    const env = {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      NODE_ENV: process.env.NODE_ENV,
+    };
+    const hotKey = this.executionConfig.hotSignerEnvVar;
+    const coldKey = this.executionConfig.coldSignerAddressEnvVar;
+    if (hotKey && process.env[hotKey]) env[hotKey] = process.env[hotKey];
+    if (coldKey && process.env[coldKey]) env[coldKey] = process.env[coldKey];
+    return env;
+  }
+
+  executeCommand(command) {
+    return new Promise((resolve, reject) => {
+      exec(
+        command,
+        {
+          env: this.childEnv(),
+          maxBuffer: 1024 * 1024,
+        },
+        (error, stdout, stderr) => {
+          if (error) {
+            reject(new Error(stderr?.trim() || error.message));
+            return;
+          }
+          resolve(stdout.trim());
+        },
+      );
+    });
+  }
+
+  async run(allocations, options = {}) {
     const results = [];
 
     for (const allocation of allocations) {
@@ -91,19 +123,14 @@ class ExecutionAgent {
         continue;
       }
 
-      const output = execSync(command, {
-        stdio: 'pipe',
-        encoding: 'utf8',
-        maxBuffer: 1024 * 1024,
-        env: process.env,
-      });
+      const output = await this.executeCommand(command);
 
       this.auditLog('execution.command_succeeded', {
         strategyId: allocation.strategyId,
         command,
       });
 
-      results.push({ strategyId: allocation.strategyId, status: 'executed', command, output: output.trim() });
+      results.push({ strategyId: allocation.strategyId, status: 'executed', command, output });
     }
 
     return { results, executedAt: new Date().toISOString() };
