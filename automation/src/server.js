@@ -66,8 +66,12 @@ function htmlDashboard() {
     async function req(path, method='GET', body){
       const key=document.getElementById('key').value.trim();
       const res=await fetch(path,{method,headers:{'content-type':'application/json','x-api-key':key},body:body?JSON.stringify(body):undefined});
-      const data=await res.json();
-      if(!res.ok) throw new Error(data.error||'request failed');
+      const raw=await res.text();
+      let data={};
+      if(raw){
+        try{data=JSON.parse(raw);}catch(_e){data={error:raw};}
+      }
+      if(!res.ok) throw new Error(data.error||('request failed: '+res.status));
       return data;
     }
     async function load(){

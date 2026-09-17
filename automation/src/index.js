@@ -44,6 +44,7 @@ function main() {
     }, 5000);
     server.close(() => {
       clearTimeout(forcedShutdownTimer);
+      for (const socket of sockets) socket.destroy();
       finalize();
     });
   };

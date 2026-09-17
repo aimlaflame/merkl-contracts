@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
 const { AutopilotController } = require('../src/controller');
 
 function makeConfig(overrides = {}) {
@@ -83,7 +84,10 @@ test('controller enables and disables scheduler in auto mode', () => {
 
 test('controller pauses after three consecutive execution failures', async () => {
   const controller = new AutopilotController(
-    makeConfig({ execution: { mode: 'live', allowedCommandPrefixes: ['yarn foundry:script'] } }),
+    makeConfig({
+      execution: { mode: 'live', allowedCommandPrefixes: ['yarn foundry:script'] },
+      adaptive: { enabled: false },
+    }),
   );
   controller.executionAgent.run = () => {
     throw new Error('execution failed');
@@ -150,14 +154,14 @@ test('controller self-corrects with cooldown and learns after success', async ()
   controller.setMode('manual');
   controller.start();
 
-  controller.executionAgent.run = async () => [{ status: 'skipped', reason: 'command_not_allowed' }];
+  controller.executionAgent.run = async () => ({ results: [{ strategyId: 'strat', status: 'skipped', reason: 'command_not_allowed' }] });
   await controller.runCycle('t1');
   await controller.runCycle('t2');
 
   const stateAfterFailures = controller.learningStore.get('strat');
   assert.equal(Boolean(stateAfterFailures.cooldownUntil), true);
-  const failedRun = await controller.runCycle('t3');
-  assert.equal(failedRun.status, 'failed');
+  const cooldownRun = await controller.runCycle('t3');
+  assert.equal(cooldownRun.status, 'cooldown');
 
   stateAfterFailures.cooldownUntil = new Date(Date.now() - 1000).toISOString();
   controller.learningStore.save();
@@ -165,4 +169,15 @@ test('controller self-corrects with cooldown and learns after success', async ()
   const successRun = await controller.runCycle('t4');
   assert.equal(successRun.status, 'success');
   assert.equal(controller.learningStore.get('strat').confidence > 0.5, true);
+});
+
+test('reset learning clears persisted file contents', () => {
+  const controller = new AutopilotController(makeConfig());
+  controller.learningStore.recordOutcome('strat', 'failed', { error: 'oops' });
+  const before = JSON.parse(fs.readFileSync(controller.config.observability.learningStatePath, 'utf8'));
+  assert.equal(Boolean(before.strategies.strat), true);
+
+  controller.resetLearning();
+  const after = JSON.parse(fs.readFileSync(controller.config.observability.learningStatePath, 'utf8'));
+  assert.equal(Object.keys(after.strategies).length, 0);
 });

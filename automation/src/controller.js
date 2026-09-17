@@ -49,7 +49,7 @@ class AutopilotController {
     this.executionAgent = new ExecutionAgent(config.execution, this.auditLog.bind(this));
     this.learningStore = new StrategyLearningStore(config, this.auditLog.bind(this));
     this.schedulerTimer = null;
-    this.schedulerLoopToken = 0;
+    this.activeSchedulerToken = null;
     this.runInProgress = false;
 
     this.ensureLogDir();
@@ -151,13 +151,15 @@ class AutopilotController {
   startScheduler() {
     this.stopScheduler();
     this.state.scheduler.active = true;
-    const token = ++this.schedulerLoopToken;
+    const schedulerToken = Symbol('scheduler');
+    this.activeSchedulerToken = schedulerToken;
 
     const scheduleNext = () => {
-      if (token !== this.schedulerLoopToken || this.state.paused || this.state.mode !== 'auto') return;
+      if (this.activeSchedulerToken !== schedulerToken || this.state.paused || this.state.mode !== 'auto') return;
       const ms = msUntilNextRun(this.config.scheduler.dailyRunAtUtc);
       this.state.scheduler.nextRunAt = new Date(Date.now() + ms).toISOString();
       this.schedulerTimer = setTimeout(async () => {
+        if (this.activeSchedulerToken !== schedulerToken) return;
         try {
           await this.runCycle('scheduled');
         } finally {
@@ -172,7 +174,7 @@ class AutopilotController {
   stopScheduler() {
     this.state.scheduler.active = false;
     this.state.scheduler.nextRunAt = null;
-    ++this.schedulerLoopToken;
+    this.activeSchedulerToken = null;
     if (this.schedulerTimer) {
       clearTimeout(this.schedulerTimer);
       this.schedulerTimer = null;
@@ -265,6 +267,7 @@ class AutopilotController {
         errors: [],
       };
       let lastAllocation = null;
+      let executionAttempted = false;
 
       const maxAttempts = this.config.scheduler.maxAttempts;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -274,7 +277,11 @@ class AutopilotController {
 
           const adaptiveStrategies = this.buildAdaptiveStrategies();
           if (adaptiveStrategies.length === 0) {
-            throw new Error('No active strategies available (all cooling down)');
+            run.status = 'cooldown';
+            run.finishedAt = new Date().toISOString();
+            run.steps.push({ step: 'cooldown', reason: 'all_strategies_cooling_down' });
+            this.auditLog('run.cooldown', { runId: run.id, trigger });
+            break;
           }
 
           const opportunities = this.opportunityAgent.run(adaptiveStrategies);
@@ -298,6 +305,7 @@ class AutopilotController {
             break;
           }
 
+          executionAttempted = true;
           const execution = await this.executionAgent.run(allocation.allocations, {
             simulationOnly: this.config.execution.mode !== 'live',
           });
@@ -328,9 +336,11 @@ class AutopilotController {
           this.applyLearningFromResults(lastAllocation, 'failed', [], lastError);
         }
         this.state.counters.failed += 1;
-        this.state.consecutiveExecutionFailures += 1;
+        if (executionAttempted) {
+          this.state.consecutiveExecutionFailures += 1;
+        }
         this.pushAlert('critical', 'Run failed after retries', { runId: run.id, errors: run.errors });
-        if (this.state.consecutiveExecutionFailures >= 3) this.stop('repeated_failures');
+        if (executionAttempted && this.state.consecutiveExecutionFailures >= 3) this.stop('repeated_failures');
       }
 
       this.state.runs.push(run);
