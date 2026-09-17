@@ -6,6 +6,7 @@ const {
   GuardrailAgent,
   ExecutionAgent,
 } = require('./agents');
+const { StrategyLearningStore } = require('./learning');
 
 function parseUtcWindow(hhmm) {
   const [hh, mm] = hhmm.split(':').map(Number);
@@ -46,6 +47,7 @@ class AutopilotController {
     this.allocationAgent = new AllocationAgent();
     this.guardrailAgent = new GuardrailAgent();
     this.executionAgent = new ExecutionAgent(config.execution, this.auditLog.bind(this));
+    this.learningStore = new StrategyLearningStore(config, this.auditLog.bind(this));
     this.schedulerTimer = null;
     this.schedulerLoopToken = 0;
     this.runInProgress = false;
@@ -96,6 +98,8 @@ class AutopilotController {
       signerPolicy: this.requireSignerPolicy(),
       executionMode: this.config.execution.mode,
       schedule: this.config.scheduler.dailyRunAtUtc,
+      adaptivePolicy: this.config.adaptive,
+      learning: this.learningStore.snapshot(),
       strategies: this.config.strategies.map(s => ({ id: s.id, chainId: s.chainId, protocol: s.protocol })),
     };
   }
@@ -190,6 +194,53 @@ class AutopilotController {
     return alert;
   }
 
+  resetLearning() {
+    return this.learningStore.reset();
+  }
+
+  buildAdaptiveStrategies() {
+    const now = Date.now();
+    return this.config.strategies
+      .map(strategy => {
+        const learning = this.learningStore.get(strategy.id);
+        const coolingDown = this.config.adaptive.enabled && this.learningStore.isCoolingDown(strategy.id, now);
+        if (coolingDown) return null;
+        const confidence = this.config.adaptive.enabled ? this.learningStore.effectiveConfidence(strategy.id) : 1;
+        const adjustedAprBps = Math.max(0, Math.round(strategy.expectedAprBps * confidence));
+        return {
+          ...strategy,
+          expectedAprBps: adjustedAprBps,
+          adaptiveConfidence: confidence,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  applyLearningFromResults(allocation, runStatus, executionResults = [], fallbackError = null) {
+    if (!this.config.adaptive.enabled) return;
+    const resultMap = new Map(executionResults.map(result => [result.strategyId, result]));
+    for (const entry of allocation.allocations) {
+      if (entry.capitalUsd <= 0) continue;
+      const result = resultMap.get(entry.strategyId);
+
+      if (runStatus === 'blocked') {
+        this.learningStore.recordOutcome(entry.strategyId, 'blocked');
+        continue;
+      }
+
+      if (!result) {
+        this.learningStore.recordOutcome(entry.strategyId, 'failed', { error: fallbackError || 'missing_execution_result' });
+        continue;
+      }
+
+      if (result.status === 'executed' || result.status === 'simulated') {
+        this.learningStore.recordOutcome(entry.strategyId, 'success');
+      } else {
+        this.learningStore.recordOutcome(entry.strategyId, 'failed', { error: result.reason || fallbackError || 'execution_failed' });
+      }
+    }
+  }
+
   async runCycle(trigger = 'manual') {
     if (this.state.paused) {
       const error = new Error('Autopilot is paused');
@@ -213,6 +264,7 @@ class AutopilotController {
         steps: [],
         errors: [],
       };
+      let lastAllocation = null;
 
       const maxAttempts = this.config.scheduler.maxAttempts;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -220,10 +272,16 @@ class AutopilotController {
         try {
           const market = this.getMarketSnapshot();
 
-          const opportunities = this.opportunityAgent.run(this.config.strategies);
+          const adaptiveStrategies = this.buildAdaptiveStrategies();
+          if (adaptiveStrategies.length === 0) {
+            throw new Error('No active strategies available (all cooling down)');
+          }
+
+          const opportunities = this.opportunityAgent.run(adaptiveStrategies);
           run.steps.push({ step: 'opportunity', count: opportunities.opportunities.length });
 
           const allocation = this.allocationAgent.run(opportunities, this.config.policy);
+          lastAllocation = allocation;
           run.steps.push({ step: 'allocation', count: allocation.allocations.length });
 
           const guard = this.guardrailAgent.run({ market, allocations: allocation.allocations }, this.config.policy);
@@ -235,6 +293,7 @@ class AutopilotController {
             run.guardrailReasons = guard.reasons;
             this.state.counters.failed += 1;
             this.pushAlert('high', 'Guardrail blocked execution', { reasons: guard.reasons, runId: run.id });
+            this.applyLearningFromResults(allocation, 'blocked');
             this.stop('guardrail_blocked');
             break;
           }
@@ -243,6 +302,7 @@ class AutopilotController {
             simulationOnly: this.config.execution.mode !== 'live',
           });
           run.steps.push({ step: 'execution', results: execution.results });
+          this.applyLearningFromResults(allocation, 'success', execution.results);
           run.status = 'success';
           run.finishedAt = new Date().toISOString();
 
@@ -263,6 +323,10 @@ class AutopilotController {
       if (run.status === 'running') {
         run.status = 'failed';
         run.finishedAt = new Date().toISOString();
+        if (lastAllocation) {
+          const lastError = run.errors.length > 0 ? run.errors[run.errors.length - 1].message : 'run_failed';
+          this.applyLearningFromResults(lastAllocation, 'failed', [], lastError);
+        }
         this.state.counters.failed += 1;
         this.state.consecutiveExecutionFailures += 1;
         this.pushAlert('critical', 'Run failed after retries', { runId: run.id, errors: run.errors });

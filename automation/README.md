@@ -10,6 +10,7 @@
 
 - `src/agents.js`: Opportunity, Allocation, Guardrail, Execution agents
 - `src/controller.js`: scheduling, retries, run lifecycle, alerts, pause/manual override
+- `src/learning.js`: confidence adaptation, cooldown state, and learning persistence
 - `src/server.js`: API + dashboard
 - `src/config.js`: environment and strategy config loading
 
@@ -21,6 +22,7 @@
 - Dry-run default
 - Hot/cold signer separation checks
 - Audit events written to `automation/state/audit.log`
+- Bounded learning controls to prevent unsafe over-adjustment
 
 ## Run
 

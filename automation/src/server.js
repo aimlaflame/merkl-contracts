@@ -57,6 +57,7 @@ function htmlDashboard() {
     <button id="run-btn">Run now</button>
     <button id="mode-auto-btn">Mode auto</button>
     <button id="mode-manual-btn">Mode manual</button>
+    <button id="reset-learning-btn">Reset learning</button>
     <button id="refresh-btn">Refresh</button>
   </div>
   <pre id="out">Loading...</pre>
@@ -75,11 +76,13 @@ function htmlDashboard() {
     }
     async function act(path){await req(path,'POST');announce('Action completed');await load();}
     async function setMode(mode){await req('/mode','POST',{mode});announce('Mode updated to '+mode);await load();}
+    async function resetLearning(){await req('/learning/reset','POST');announce('Learning state reset');await load();}
     document.getElementById('start-btn').addEventListener('click',()=>act('/start'));
     document.getElementById('stop-btn').addEventListener('click',()=>act('/stop'));
     document.getElementById('run-btn').addEventListener('click',()=>act('/run-now'));
     document.getElementById('mode-auto-btn').addEventListener('click',()=>setMode('auto'));
     document.getElementById('mode-manual-btn').addEventListener('click',()=>setMode('manual'));
+    document.getElementById('reset-learning-btn').addEventListener('click',resetLearning);
     document.getElementById('refresh-btn').addEventListener('click',load);
     load();
   </script>
@@ -177,6 +180,14 @@ function createServer(controller, config) {
         controller.setMode(body.mode);
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify(controller.getStatus()));
+        return;
+      }
+
+      if (req.method === 'POST' && req.url === '/learning/reset') {
+        if (!requireRole(req, res, ['admin'])) return;
+        const learning = controller.resetLearning();
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ learning }));
         return;
       }
 

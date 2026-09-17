@@ -20,8 +20,21 @@ function makeConfig() {
       hotSignerEnvVar: 'HOT_SIGNER_PRIVATE_KEY',
       coldSignerAddressEnvVar: 'COLD_SIGNER_ADDRESS',
     },
+    adaptive: {
+      enabled: true,
+      minConfidence: 0.4,
+      maxConfidence: 1.6,
+      successStep: 0.05,
+      failureStep: 0.1,
+      blockedStep: 0.03,
+      cooldownFailureThreshold: 2,
+      cooldownMinutes: 180,
+    },
     api: { host: '127.0.0.1', port: 0, adminApiKeys: ['admin'], viewerApiKeys: ['viewer'] },
-    observability: { logPath: path.join('/tmp', `autopilot-server-test-${Date.now()}-${Math.random()}.log`) },
+    observability: {
+      logPath: path.join('/tmp', `autopilot-server-test-${Date.now()}-${Math.random()}.log`),
+      learningStatePath: path.join('/tmp', `autopilot-server-learning-${Date.now()}-${Math.random()}.json`),
+    },
     strategies: [],
   };
 }
@@ -185,6 +198,29 @@ test('run-now overlap returns conflict', async () => {
     assert.equal(second.status, 409);
     const first = await firstPromise;
     assert.equal(first.status, 200);
+  } finally {
+    controller.stop();
+    server.close();
+  }
+});
+
+test('learning reset endpoint clears learning state', async () => {
+  const { controller, server, base } = await setup();
+  try {
+    controller.learningStore.recordOutcome('seed', 'failed', { error: 'x' });
+    const before = await fetch(`${base}/status`, { headers: { 'x-api-key': 'admin' } });
+    const beforeJson = await before.json();
+    assert.equal(Boolean(beforeJson.learning.strategies.seed), true);
+
+    const reset = await fetch(`${base}/learning/reset`, {
+      method: 'POST',
+      headers: { 'x-api-key': 'admin' },
+    });
+    assert.equal(reset.status, 200);
+
+    const after = await fetch(`${base}/status`, { headers: { 'x-api-key': 'admin' } });
+    const afterJson = await after.json();
+    assert.equal(Object.keys(afterJson.learning.strategies).length, 0);
   } finally {
     controller.stop();
     server.close();

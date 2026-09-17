@@ -19,8 +19,21 @@ function makeConfig(overrides = {}) {
       hotSignerEnvVar: 'HOT_SIGNER_PRIVATE_KEY',
       coldSignerAddressEnvVar: 'COLD_SIGNER_ADDRESS',
     },
+    adaptive: {
+      enabled: true,
+      minConfidence: 0.4,
+      maxConfidence: 1.6,
+      successStep: 0.05,
+      failureStep: 0.1,
+      blockedStep: 0.03,
+      cooldownFailureThreshold: 2,
+      cooldownMinutes: 180,
+    },
     api: { adminApiKeys: ['admin'], viewerApiKeys: ['viewer'] },
-    observability: { logPath: path.join('/tmp', `autopilot-test-${Date.now()}-${Math.random()}.log`) },
+    observability: {
+      logPath: path.join('/tmp', `autopilot-test-${Date.now()}-${Math.random()}.log`),
+      learningStatePath: path.join('/tmp', `autopilot-learning-${Date.now()}-${Math.random()}.json`),
+    },
     strategies: [
       {
         id: 'strat',
@@ -39,6 +52,10 @@ function makeConfig(overrides = {}) {
     execution: {
       ...base.execution,
       ...(overrides.execution || {}),
+    },
+    adaptive: {
+      ...base.adaptive,
+      ...(overrides.adaptive || {}),
     },
   };
 }
@@ -112,4 +129,40 @@ test('controller rejects overlapping runs', async () => {
   await assert.rejects(() => controller.runCycle('second'), error => error.statusCode === 409);
 
   await first;
+});
+
+test('controller self-corrects with cooldown and learns after success', async () => {
+  const controller = new AutopilotController(
+    makeConfig({
+      adaptive: {
+        enabled: true,
+        minConfidence: 0.5,
+        maxConfidence: 1.5,
+        successStep: 0.1,
+        failureStep: 0.2,
+        blockedStep: 0.05,
+        cooldownFailureThreshold: 2,
+        cooldownMinutes: 120,
+      },
+    }),
+  );
+
+  controller.setMode('manual');
+  controller.start();
+
+  controller.executionAgent.run = async () => [{ status: 'skipped', reason: 'command_not_allowed' }];
+  await controller.runCycle('t1');
+  await controller.runCycle('t2');
+
+  const stateAfterFailures = controller.learningStore.get('strat');
+  assert.equal(Boolean(stateAfterFailures.cooldownUntil), true);
+  const failedRun = await controller.runCycle('t3');
+  assert.equal(failedRun.status, 'failed');
+
+  stateAfterFailures.cooldownUntil = new Date(Date.now() - 1000).toISOString();
+  controller.learningStore.save();
+  controller.executionAgent.run = async () => ({ results: [{ strategyId: 'strat', status: 'simulated' }] });
+  const successRun = await controller.runCycle('t4');
+  assert.equal(successRun.status, 'success');
+  assert.equal(controller.learningStore.get('strat').confidence > 0.5, true);
 });

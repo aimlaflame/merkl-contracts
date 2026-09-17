@@ -13,7 +13,16 @@ const DEFAULTS = {
   host: '0.0.0.0',
   port: 8787,
   logPath: 'automation/state/audit.log',
+  learningStatePath: 'automation/state/learning_state.json',
   mode: 'dry-run',
+  adaptiveEnabled: true,
+  minConfidence: 0.4,
+  maxConfidence: 1.6,
+  successStep: 0.05,
+  failureStep: 0.1,
+  blockedStep: 0.03,
+  cooldownFailureThreshold: 2,
+  cooldownMinutes: 180,
 };
 
 function parseNumber(value, fallback, name, options = {}) {
@@ -43,6 +52,14 @@ function resolvePath(rootDir, target) {
   return path.isAbsolute(target) ? target : path.join(rootDir, target);
 }
 
+function parseBool(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const normalized = String(value).toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  throw new Error('Boolean env var must be true/false');
+}
+
 function loadStrategies(rootDir) {
   const strategiesPath =
     process.env.AUTOPILOT_STRATEGIES_PATH || path.join(rootDir, 'automation/config/strategies.json');
@@ -55,6 +72,7 @@ function loadStrategies(rootDir) {
 
 function loadConfig(rootDir) {
   const logPath = resolvePath(rootDir, process.env.AUTOPILOT_AUDIT_LOG_PATH || DEFAULTS.logPath);
+  const learningStatePath = resolvePath(rootDir, process.env.AUTOPILOT_LEARNING_STATE_PATH || DEFAULTS.learningStatePath);
   const config = {
     scheduler: {
       dailyRunAtUtc: process.env.AUTOPILOT_DAILY_RUN_UTC || DEFAULTS.dailyRunAtUtc,
@@ -108,6 +126,31 @@ function loadConfig(rootDir) {
     },
     observability: {
       logPath,
+      learningStatePath,
+    },
+    adaptive: {
+      enabled: parseBool(process.env.AUTOPILOT_ADAPTIVE_ENABLED, DEFAULTS.adaptiveEnabled),
+      minConfidence: parseNumber(process.env.AUTOPILOT_MIN_CONFIDENCE, DEFAULTS.minConfidence, 'AUTOPILOT_MIN_CONFIDENCE', {
+        min: 0.01,
+      }),
+      maxConfidence: parseNumber(process.env.AUTOPILOT_MAX_CONFIDENCE, DEFAULTS.maxConfidence, 'AUTOPILOT_MAX_CONFIDENCE', {
+        min: 0.01,
+      }),
+      successStep: parseNumber(process.env.AUTOPILOT_SUCCESS_STEP, DEFAULTS.successStep, 'AUTOPILOT_SUCCESS_STEP', { min: 0 }),
+      failureStep: parseNumber(process.env.AUTOPILOT_FAILURE_STEP, DEFAULTS.failureStep, 'AUTOPILOT_FAILURE_STEP', { min: 0 }),
+      blockedStep: parseNumber(process.env.AUTOPILOT_BLOCKED_STEP, DEFAULTS.blockedStep, 'AUTOPILOT_BLOCKED_STEP', { min: 0 }),
+      cooldownFailureThreshold: parseNumber(
+        process.env.AUTOPILOT_COOLDOWN_FAILURE_THRESHOLD,
+        DEFAULTS.cooldownFailureThreshold,
+        'AUTOPILOT_COOLDOWN_FAILURE_THRESHOLD',
+        { integer: true, min: 1 },
+      ),
+      cooldownMinutes: parseNumber(
+        process.env.AUTOPILOT_COOLDOWN_MINUTES,
+        DEFAULTS.cooldownMinutes,
+        'AUTOPILOT_COOLDOWN_MINUTES',
+        { integer: true, min: 1 },
+      ),
     },
     strategies: loadStrategies(rootDir),
   };
@@ -126,6 +169,9 @@ function validateConfig(config) {
   }
   if (!['dry-run', 'live'].includes(config.execution.mode)) {
     throw new Error('AUTOPILOT_EXECUTION_MODE must be dry-run or live');
+  }
+  if (config.adaptive.maxConfidence < config.adaptive.minConfidence) {
+    throw new Error('AUTOPILOT_MAX_CONFIDENCE must be >= AUTOPILOT_MIN_CONFIDENCE');
   }
   if (config.api.adminApiKeys.length === 0) {
     throw new Error('Configure AUTOPILOT_ADMIN_API_KEYS');

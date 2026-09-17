@@ -60,6 +60,7 @@ This repository now includes an off-chain autopilot service in `/automation` tha
 - Execution Agent
 
 It includes a daily scheduler, retries, audit logs, pause/manual override, and a secure remote control API with a mobile-friendly dashboard.
+It also includes bounded adaptive learning (confidence tuning and cooldown-based self-correction) for strategy evolution.
 
 ### Quick start
 
@@ -99,6 +100,7 @@ Use your API key in the dashboard and control start/stop/run-now/mode from iPhon
 - `POST /run-now` (admin)
 - `POST /mode` with `{ "mode": "manual" | "auto" }` (admin)
 - `POST /alerts/:id/ack` (admin)
+- `POST /learning/reset` (admin)
 
 Authentication is via `x-api-key` header. Use separate admin and viewer keys.
 
