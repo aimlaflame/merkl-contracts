@@ -171,7 +171,7 @@ function createServer(controller, config) {
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'not_found' }));
     } catch (error) {
-      const statusCode = error.statusCode || (error.message && error.message.startsWith('mode must') ? 400 : 500);
+      const statusCode = error.statusCode || 500;
       const responseError = statusCode >= 500 ? 'internal_server_error' : error.message;
       if (statusCode >= 500 && typeof controller.auditLog === 'function') {
         controller.auditLog('server.error', { message: error.message, stack: error.stack });

@@ -114,7 +114,9 @@ class AutopilotController {
 
   setMode(mode) {
     if (!['manual', 'auto'].includes(mode)) {
-      throw new Error('mode must be manual or auto');
+      const error = new Error('mode must be manual or auto');
+      error.statusCode = 400;
+      throw error;
     }
     this.state.mode = mode;
     if (mode === 'manual') this.stopScheduler();
@@ -124,7 +126,7 @@ class AutopilotController {
 
   start() {
     this.state.paused = false;
-    this.state.startedAt = this.state.startedAt || new Date().toISOString();
+    this.state.startedAt = new Date().toISOString();
     this.state.health.status = 'running';
     this.state.health.lastHeartbeatAt = new Date().toISOString();
     this.auditLog('controller.started');

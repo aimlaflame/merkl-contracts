@@ -19,7 +19,7 @@ test('execution agent simulates dry-run for allowed command', async () => {
     {
       strategyId: 's1',
       capitalUsd: 100,
-      action: { command: 'node -e "console.log(1)"' },
+      action: { file: 'node', args: ['-e', 'console.log(1)'] },
     },
   ]);
 
@@ -41,7 +41,7 @@ test('execution agent skips disallowed command', async () => {
     {
       strategyId: 's2',
       capitalUsd: 100,
-      action: { command: 'node -e "console.log(1)"' },
+      action: { file: 'node', args: ['-e', 'console.log(1)'] },
     },
   ]);
 
@@ -71,7 +71,7 @@ test('execution agent blocks live mode without signer policy', async () => {
         {
           strategyId: 's3',
           capitalUsd: 100,
-          action: { command: 'node -e "console.log(1)"' },
+          action: { file: 'node', args: ['-e', 'console.log(1)'] },
         },
       ]),
     /Live execution requires configured hot and cold signer settings/,
@@ -101,7 +101,7 @@ test('execution agent executes allowed live command asynchronously', async () =>
     {
       strategyId: 's4',
       capitalUsd: 100,
-      action: { command: 'node -e "console.log(7)"' },
+      action: { file: 'node', args: ['-e', 'console.log(7)'] },
     },
   ]);
 

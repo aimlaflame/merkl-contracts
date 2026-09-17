@@ -119,7 +119,9 @@ class ExecutionAgent {
       child.on('error', error => reject(error));
       child.on('close', code => {
         if (code !== 0) {
-          reject(new Error(Buffer.concat(err).toString('utf8').trim() || `Command failed with code ${code}`));
+          const stderr = Buffer.concat(err).toString('utf8').trim();
+          const stdout = Buffer.concat(out).toString('utf8').trim();
+          reject(new Error(stderr || stdout || `Command failed with code ${code}`));
           return;
         }
         resolve(Buffer.concat(out).toString('utf8').trim());
@@ -135,16 +137,29 @@ class ExecutionAgent {
 
     for (const allocation of allocations) {
       if (allocation.capitalUsd <= 0) continue;
-      const command = allocation.action?.command || '';
-      const tokens = this.parseCommand(command);
+      const action = allocation.action || {};
+      const tokens =
+        typeof action.file === 'string'
+          ? [action.file, ...(Array.isArray(action.args) ? action.args.map(String) : [])]
+          : this.parseCommand(action.command || '');
       const authorized = this.isAuthorized(tokens);
       if (!authorized) {
         results.push({ strategyId: allocation.strategyId, status: 'skipped', reason: 'command_not_allowed' });
         continue;
       }
 
+      if (this.executionConfig.mode === 'live' && !options.simulationOnly && typeof action.file !== 'string') {
+        results.push({ strategyId: allocation.strategyId, status: 'skipped', reason: 'unstructured_command' });
+        continue;
+      }
+
       if (this.executionConfig.mode === 'dry-run' || options.simulationOnly) {
-        results.push({ strategyId: allocation.strategyId, status: 'simulated', command, capitalUsd: allocation.capitalUsd });
+        results.push({
+          strategyId: allocation.strategyId,
+          status: 'simulated',
+          command: tokens.join(' '),
+          capitalUsd: allocation.capitalUsd,
+        });
         continue;
       }
 
@@ -153,10 +168,10 @@ class ExecutionAgent {
 
       this.auditLog('execution.command_succeeded', {
         strategyId: allocation.strategyId,
-        command,
+        command: tokens.join(' '),
       });
 
-      results.push({ strategyId: allocation.strategyId, status: 'executed', command, output });
+      results.push({ strategyId: allocation.strategyId, status: 'executed', command: tokens.join(' '), output });
     }
 
     return { results, executedAt: new Date().toISOString() };

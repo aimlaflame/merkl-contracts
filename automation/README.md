@@ -17,6 +17,7 @@
 
 - Role-based API keys (`admin`, `viewer`)
 - Command-prefix allowlist before execution
+- Structured command actions (`file` + `args`) for live execution
 - Dry-run default
 - Hot/cold signer separation checks
 - Audit events written to `automation/state/audit.log`

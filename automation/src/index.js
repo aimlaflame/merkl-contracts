@@ -13,6 +13,11 @@ function main() {
 
   const server = createServer(controller, config);
   let shuttingDown = false;
+  const sockets = new Set();
+  server.on('connection', socket => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
   server.listen(config.api.port, config.api.host, () => {
     const address = server.address();
     const boundPort = address && typeof address === 'object' ? address.port : config.api.port;
@@ -26,7 +31,12 @@ function main() {
     shuttingDown = true;
     controller.auditLog('server.shutdown', { signal });
     controller.stop(`signal_${signal}`);
+    const forcedShutdownTimer = setTimeout(() => {
+      for (const socket of sockets) socket.destroy();
+      controller.logStream.end(() => process.exit(0));
+    }, 5000);
     server.close(() => {
+      clearTimeout(forcedShutdownTimer);
       controller.logStream.end(() => process.exit(0));
     });
   };

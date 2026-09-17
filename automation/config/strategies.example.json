@@ -10,7 +10,17 @@
     "enabled": true,
     "action": {
       "type": "command",
-      "command": "yarn foundry:script scripts/Distributor.s.sol --rpc-url mainnet --sig \"run(bytes32,bytes32)\" 0x0 0x0"
+      "file": "yarn",
+      "args": [
+        "foundry:script",
+        "scripts/Distributor.s.sol",
+        "--rpc-url",
+        "mainnet",
+        "--sig",
+        "run(bytes32,bytes32)",
+        "0x0",
+        "0x0"
+      ]
     }
   },
   {
@@ -24,7 +34,17 @@
     "enabled": true,
     "action": {
       "type": "command",
-      "command": "yarn foundry:script scripts/Distributor.s.sol --rpc-url arbitrum --sig \"run(bytes32,bytes32)\" 0x0 0x0"
+      "file": "yarn",
+      "args": [
+        "foundry:script",
+        "scripts/Distributor.s.sol",
+        "--rpc-url",
+        "arbitrum",
+        "--sig",
+        "run(bytes32,bytes32)",
+        "0x0",
+        "0x0"
+      ]
     }
   }
 ]

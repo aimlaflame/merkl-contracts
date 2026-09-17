@@ -73,7 +73,7 @@ cp .env.example .env
 
 - `AUTOPILOT_ADMIN_API_KEYS`
 - `AUTOPILOT_VIEWER_API_KEYS`
-- strategy actions in `/automation/config/strategies.example.json` (or set `AUTOPILOT_STRATEGIES_PATH` to your own file)
+- strategy actions in `/automation/config/strategies.example.json` using structured `{ "file": "...", "args": [...] }` commands (or set `AUTOPILOT_STRATEGIES_PATH` to your own file)
 
 3. Start the service:
 
