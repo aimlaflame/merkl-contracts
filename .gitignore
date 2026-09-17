@@ -50,3 +50,4 @@ bin
 /zkout
 /cache-forge
 /transactions
+automation/state/*.log
