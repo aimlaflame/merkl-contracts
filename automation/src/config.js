@@ -91,8 +91,8 @@ function validateConfig(config) {
   if (!['dry-run', 'live'].includes(config.execution.mode)) {
     throw new Error('AUTOPILOT_EXECUTION_MODE must be dry-run or live');
   }
-  if (config.api.adminApiKeys.length === 0 || config.api.viewerApiKeys.length === 0) {
-    throw new Error('Configure AUTOPILOT_ADMIN_API_KEYS and AUTOPILOT_VIEWER_API_KEYS');
+  if (config.api.adminApiKeys.length === 0) {
+    throw new Error('Configure AUTOPILOT_ADMIN_API_KEYS');
   }
 }
 

@@ -9,7 +9,9 @@ function parseBody(req) {
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
       } catch (error) {
-        reject(new Error('Invalid JSON body'));
+        const parseError = new Error('Invalid JSON body');
+        parseError.statusCode = 400;
+        reject(parseError);
       }
     });
     req.on('error', reject);
@@ -84,6 +86,7 @@ function createServer(controller, config) {
   async function handle(req, res) {
     try {
       if (req.method === 'GET' && req.url === '/') {
+        if (!requireRole(req, res, ['admin', 'viewer'])) return;
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(htmlDashboard());
         return;
@@ -137,16 +140,15 @@ function createServer(controller, config) {
         if (!requireRole(req, res, ['admin'])) return;
         const body = await parseBody(req);
         controller.setMode(body.mode);
-        if (body.mode === 'auto' && !controller.state.paused) controller.startScheduler();
-        if (body.mode === 'manual') controller.stopScheduler();
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify(controller.getStatus()));
         return;
       }
 
-      if (req.method === 'POST' && req.url.startsWith('/alerts/')) {
+      const alertAckMatch = req.method === 'POST' ? req.url.match(/^\/alerts\/([^/]+)\/ack$/) : null;
+      if (alertAckMatch) {
         if (!requireRole(req, res, ['admin'])) return;
-        const id = req.url.replace('/alerts/', '').replace('/ack', '');
+        const id = alertAckMatch[1];
         const ok = controller.acknowledgeAlert(id);
         res.writeHead(ok ? 200 : 404, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ok }));
@@ -156,7 +158,8 @@ function createServer(controller, config) {
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'not_found' }));
     } catch (error) {
-      res.writeHead(400, { 'content-type': 'application/json' });
+      const statusCode = error.statusCode || (error.message && error.message.startsWith('mode must') ? 400 : 500);
+      res.writeHead(statusCode, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: error.message }));
     }
   }

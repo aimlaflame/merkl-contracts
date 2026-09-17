@@ -36,6 +36,7 @@ class AutopilotController {
       runs: [],
       alerts: [],
       counters: { success: 0, failed: 0 },
+      consecutiveExecutionFailures: 0,
       pnl: { realizedUsd: 0, estimatedAprBps: 0 },
       health: { status: 'idle', lastHeartbeatAt: null },
     };
@@ -107,6 +108,8 @@ class AutopilotController {
       throw new Error('mode must be manual or auto');
     }
     this.state.mode = mode;
+    if (mode === 'manual') this.stopScheduler();
+    if (mode === 'auto' && !this.state.paused) this.startScheduler();
     this.auditLog('controller.mode_set', { mode });
   }
 
@@ -219,6 +222,7 @@ class AutopilotController {
         run.finishedAt = new Date().toISOString();
 
         this.state.counters.success += 1;
+        this.state.consecutiveExecutionFailures = 0;
         this.state.pnl.estimatedAprBps = this.estimateApr(allocation.allocations);
         this.state.pnl.realizedUsd += this.estimateDailyPnl(allocation.allocations);
 
@@ -235,8 +239,9 @@ class AutopilotController {
       run.status = 'failed';
       run.finishedAt = new Date().toISOString();
       this.state.counters.failed += 1;
+      this.state.consecutiveExecutionFailures += 1;
       this.pushAlert('critical', 'Run failed after retries', { runId: run.id, errors: run.errors });
-      if (this.state.counters.failed >= 3) this.stop('repeated_failures');
+      if (this.state.consecutiveExecutionFailures >= 3) this.stop('repeated_failures');
     }
 
     this.state.runs.push(run);
