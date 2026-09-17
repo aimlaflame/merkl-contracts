@@ -119,3 +119,18 @@ test('run-now returns conflict while paused', async () => {
     server.close();
   }
 });
+
+test('health endpoint returns 503 when paused and 200 when running', async () => {
+  const { controller, server, base } = await setup();
+  try {
+    const paused = await fetch(`${base}/health`);
+    assert.equal(paused.status, 503);
+
+    await fetch(`${base}/start`, { method: 'POST', headers: { 'x-api-key': 'admin' } });
+    const running = await fetch(`${base}/health`);
+    assert.equal(running.status, 200);
+  } finally {
+    controller.stop();
+    server.close();
+  }
+});

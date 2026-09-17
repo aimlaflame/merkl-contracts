@@ -50,7 +50,14 @@ class AutopilotController {
     this.runInProgress = false;
 
     this.ensureLogDir();
+    const fd = fs.openSync(this.config.observability.logPath, 'a');
+    fs.closeSync(fd);
     this.logStream = fs.createWriteStream(this.config.observability.logPath, { flags: 'a' });
+    this.logStream.on('error', error => {
+      this.state.health.status = 'degraded';
+      // eslint-disable-next-line no-console
+      console.error('autopilot audit log stream error', error.message);
+    });
   }
 
   ensureLogDir() {
@@ -194,7 +201,7 @@ class AutopilotController {
 
     try {
       const run = {
-        id: `${Date.now()}`,
+        id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
         trigger,
         startedAt: new Date().toISOString(),
         status: 'running',
@@ -226,15 +233,6 @@ class AutopilotController {
             this.pushAlert('high', 'Guardrail blocked execution', { reasons: guard.reasons, runId: run.id });
             this.stop('guardrail_blocked');
             break;
-          }
-
-          if (this.config.execution.mode === 'live') {
-            const signerPolicy = this.requireSignerPolicy();
-            if (!signerPolicy.hotSignerConfigured || !signerPolicy.coldSignerAddressConfigured) {
-              const signerError = new Error('Live execution requires configured hot and cold signer settings');
-              signerError.statusCode = 503;
-              throw signerError;
-            }
           }
 
           const execution = await this.executionAgent.run(allocation.allocations, {

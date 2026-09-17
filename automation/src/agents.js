@@ -1,4 +1,4 @@
-const { exec } = require('node:child_process');
+const { spawn } = require('node:child_process');
 
 class OpportunityAgent {
   run(strategies) {
@@ -74,6 +74,25 @@ class ExecutionAgent {
     this.auditLog = auditLog;
   }
 
+  parseCommand(command) {
+    const tokens = command.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+    return tokens.map(token => token.replace(/^"|"$/g, ''));
+  }
+
+  isAuthorized(tokens) {
+    const allowlists = this.executionConfig.allowedCommandPrefixes.map(prefix => this.parseCommand(prefix));
+    return allowlists.some(allowed => {
+      if (allowed.length === 0 || tokens.length < allowed.length) return false;
+      return allowed.every((token, i) => token === tokens[i]);
+    });
+  }
+
+  signerPolicyReady() {
+    const hotKey = this.executionConfig.hotSignerEnvVar;
+    const coldKey = this.executionConfig.coldSignerAddressEnvVar;
+    return Boolean(hotKey && process.env[hotKey]) && Boolean(coldKey && process.env[coldKey]);
+  }
+
   childEnv() {
     const env = {
       PATH: process.env.PATH,
@@ -87,32 +106,38 @@ class ExecutionAgent {
     return env;
   }
 
-  executeCommand(command) {
+  executeCommand(file, args) {
     return new Promise((resolve, reject) => {
-      exec(
-        command,
-        {
-          env: this.childEnv(),
-          maxBuffer: 1024 * 1024,
-        },
-        (error, stdout, stderr) => {
-          if (error) {
-            reject(new Error(stderr?.trim() || error.message));
-            return;
-          }
-          resolve(stdout.trim());
-        },
-      );
+      const child = spawn(file, args, {
+        env: this.childEnv(),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const out = [];
+      const err = [];
+      child.stdout.on('data', chunk => out.push(chunk));
+      child.stderr.on('data', chunk => err.push(chunk));
+      child.on('error', error => reject(error));
+      child.on('close', code => {
+        if (code !== 0) {
+          reject(new Error(Buffer.concat(err).toString('utf8').trim() || `Command failed with code ${code}`));
+          return;
+        }
+        resolve(Buffer.concat(out).toString('utf8').trim());
+      });
     });
   }
 
   async run(allocations, options = {}) {
     const results = [];
+    if (this.executionConfig.mode === 'live' && !options.simulationOnly && !this.signerPolicyReady()) {
+      throw new Error('Live execution requires configured hot and cold signer settings');
+    }
 
     for (const allocation of allocations) {
       if (allocation.capitalUsd <= 0) continue;
       const command = allocation.action?.command || '';
-      const authorized = this.executionConfig.allowedCommandPrefixes.some(prefix => command.startsWith(prefix));
+      const tokens = this.parseCommand(command);
+      const authorized = this.isAuthorized(tokens);
       if (!authorized) {
         results.push({ strategyId: allocation.strategyId, status: 'skipped', reason: 'command_not_allowed' });
         continue;
@@ -123,7 +148,8 @@ class ExecutionAgent {
         continue;
       }
 
-      const output = await this.executeCommand(command);
+      const [file, ...args] = tokens;
+      const output = await this.executeCommand(file, args);
 
       this.auditLog('execution.command_succeeded', {
         strategyId: allocation.strategyId,

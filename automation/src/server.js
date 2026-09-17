@@ -98,7 +98,7 @@ function createServer(controller, config) {
           controller.state.health.status === 'running' &&
           controller.state.startedAt !== null &&
           controller.state.paused === false;
-        res.writeHead(200, { 'content-type': 'application/json' });
+        res.writeHead(ready ? 200 : 503, { 'content-type': 'application/json' });
         res.end(
           JSON.stringify({
             ok: ready,
