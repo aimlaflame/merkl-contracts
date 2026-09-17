@@ -88,6 +88,10 @@ function validateConfig(config) {
   if (!/^\d{2}:\d{2}$/.test(config.scheduler.dailyRunAtUtc)) {
     throw new Error('AUTOPILOT_DAILY_RUN_UTC must use HH:MM UTC format');
   }
+  const [hh, mm] = config.scheduler.dailyRunAtUtc.split(':').map(Number);
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+    throw new Error('AUTOPILOT_DAILY_RUN_UTC must be a valid UTC time');
+  }
   if (!['dry-run', 'live'].includes(config.execution.mode)) {
     throw new Error('AUTOPILOT_EXECUTION_MODE must be dry-run or live');
   }

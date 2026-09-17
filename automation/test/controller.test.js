@@ -89,3 +89,20 @@ test('controller blocks and pauses when guardrail fails', async () => {
   assert.equal(controller.state.paused, true);
   assert.equal(controller.state.scheduler.active, false);
 });
+
+test('controller rejects overlapping runs', async () => {
+  const controller = new AutopilotController(makeConfig());
+  controller.executionAgent.run = async () => {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    return { results: [], executedAt: new Date().toISOString() };
+  };
+
+  controller.setMode('manual');
+  controller.start();
+  const first = controller.runCycle('first');
+
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await assert.rejects(() => controller.runCycle('second'), error => error.statusCode === 409);
+
+  await first;
+});

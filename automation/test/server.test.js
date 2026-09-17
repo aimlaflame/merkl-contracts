@@ -105,3 +105,17 @@ test('mode endpoint supports valid and invalid requests', async () => {
     server.close();
   }
 });
+
+test('run-now returns conflict while paused', async () => {
+  const { controller, server, base } = await setup();
+  try {
+    const resp = await fetch(`${base}/run-now`, {
+      method: 'POST',
+      headers: { 'x-api-key': 'admin' },
+    });
+    assert.equal(resp.status, 409);
+  } finally {
+    controller.stop();
+    server.close();
+  }
+});

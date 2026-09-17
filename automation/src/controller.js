@@ -47,8 +47,10 @@ class AutopilotController {
     this.executionAgent = new ExecutionAgent(config.execution, this.auditLog.bind(this));
     this.schedulerTimer = null;
     this.schedulerLoopToken = 0;
+    this.runInProgress = false;
 
     this.ensureLogDir();
+    this.logStream = fs.createWriteStream(this.config.observability.logPath, { flags: 'a' });
   }
 
   ensureLogDir() {
@@ -58,7 +60,7 @@ class AutopilotController {
 
   auditLog(event, payload = {}) {
     const row = { ts: new Date().toISOString(), event, payload };
-    fs.appendFileSync(this.config.observability.logPath, `${JSON.stringify(row)}\n`, 'utf8');
+    this.logStream.write(`${JSON.stringify(row)}\n`);
   }
 
   requireSignerPolicy() {
@@ -179,79 +181,100 @@ class AutopilotController {
 
   async runCycle(trigger = 'manual') {
     if (this.state.paused) {
-      throw new Error('Autopilot is paused');
+      const error = new Error('Autopilot is paused');
+      error.statusCode = 409;
+      throw error;
     }
+    if (this.runInProgress) {
+      const error = new Error('Run already in progress');
+      error.statusCode = 409;
+      throw error;
+    }
+    this.runInProgress = true;
 
-    const run = {
-      id: `${Date.now()}`,
-      trigger,
-      startedAt: new Date().toISOString(),
-      status: 'running',
-      attempts: 0,
-      steps: [],
-      errors: [],
-    };
+    try {
+      const run = {
+        id: `${Date.now()}`,
+        trigger,
+        startedAt: new Date().toISOString(),
+        status: 'running',
+        attempts: 0,
+        steps: [],
+        errors: [],
+      };
 
-    const maxAttempts = this.config.scheduler.maxAttempts;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      run.attempts = attempt;
-      try {
-        const market = this.getMarketSnapshot();
+      const maxAttempts = this.config.scheduler.maxAttempts;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        run.attempts = attempt;
+        try {
+          const market = this.getMarketSnapshot();
 
-        const opportunities = this.opportunityAgent.run(this.config.strategies);
-        run.steps.push({ step: 'opportunity', count: opportunities.opportunities.length });
+          const opportunities = this.opportunityAgent.run(this.config.strategies);
+          run.steps.push({ step: 'opportunity', count: opportunities.opportunities.length });
 
-        const allocation = this.allocationAgent.run(opportunities, this.config.policy);
-        run.steps.push({ step: 'allocation', count: allocation.allocations.length });
+          const allocation = this.allocationAgent.run(opportunities, this.config.policy);
+          run.steps.push({ step: 'allocation', count: allocation.allocations.length });
 
-        const guard = this.guardrailAgent.run({ market, allocations: allocation.allocations }, this.config.policy);
-        run.steps.push({ step: 'guardrail', approved: guard.approved, reasons: guard.reasons });
+          const guard = this.guardrailAgent.run({ market, allocations: allocation.allocations }, this.config.policy);
+          run.steps.push({ step: 'guardrail', approved: guard.approved, reasons: guard.reasons });
 
-        if (!guard.approved) {
-          run.status = 'blocked';
+          if (!guard.approved) {
+            run.status = 'blocked';
+            run.finishedAt = new Date().toISOString();
+            run.guardrailReasons = guard.reasons;
+            this.state.counters.failed += 1;
+            this.pushAlert('high', 'Guardrail blocked execution', { reasons: guard.reasons, runId: run.id });
+            this.stop('guardrail_blocked');
+            break;
+          }
+
+          if (this.config.execution.mode === 'live') {
+            const signerPolicy = this.requireSignerPolicy();
+            if (!signerPolicy.hotSignerConfigured || !signerPolicy.coldSignerAddressConfigured) {
+              const signerError = new Error('Live execution requires configured hot and cold signer settings');
+              signerError.statusCode = 503;
+              throw signerError;
+            }
+          }
+
+          const execution = await this.executionAgent.run(allocation.allocations, {
+            simulationOnly: this.config.execution.mode !== 'live',
+          });
+          run.steps.push({ step: 'execution', results: execution.results });
+          run.status = 'success';
           run.finishedAt = new Date().toISOString();
-          run.guardrailReasons = guard.reasons;
-          this.state.counters.failed += 1;
-          this.pushAlert('high', 'Guardrail blocked execution', { reasons: guard.reasons, runId: run.id });
-          this.stop('guardrail_blocked');
+
+          this.state.counters.success += 1;
+          this.state.consecutiveExecutionFailures = 0;
+          this.state.pnl.estimatedAprBps = this.estimateApr(allocation.allocations);
+          this.state.pnl.realizedUsd += this.estimateDailyPnl(allocation.allocations);
+
+          this.auditLog('run.success', { runId: run.id, trigger, attempts: attempt });
           break;
+        } catch (error) {
+          run.errors.push({ attempt, message: error.message });
+          this.auditLog('run.error', { runId: run.id, attempt, message: error.message });
+          if (attempt < maxAttempts) await delay(this.config.scheduler.backoffMs);
         }
-
-        const execution = await this.executionAgent.run(allocation.allocations, {
-          simulationOnly: this.config.execution.mode !== 'live',
-        });
-        run.steps.push({ step: 'execution', results: execution.results });
-        run.status = 'success';
-        run.finishedAt = new Date().toISOString();
-
-        this.state.counters.success += 1;
-        this.state.consecutiveExecutionFailures = 0;
-        this.state.pnl.estimatedAprBps = this.estimateApr(allocation.allocations);
-        this.state.pnl.realizedUsd += this.estimateDailyPnl(allocation.allocations);
-
-        this.auditLog('run.success', { runId: run.id, trigger, attempts: attempt });
-        break;
-      } catch (error) {
-        run.errors.push({ attempt, message: error.message });
-        this.auditLog('run.error', { runId: run.id, attempt, message: error.message });
-        if (attempt < maxAttempts) await delay(this.config.scheduler.backoffMs);
       }
-    }
 
-    if (run.status === 'running') {
-      run.status = 'failed';
-      run.finishedAt = new Date().toISOString();
-      this.state.counters.failed += 1;
-      this.state.consecutiveExecutionFailures += 1;
-      this.pushAlert('critical', 'Run failed after retries', { runId: run.id, errors: run.errors });
-      if (this.state.consecutiveExecutionFailures >= 3) this.stop('repeated_failures');
-    }
+      if (run.status === 'running') {
+        run.status = 'failed';
+        run.finishedAt = new Date().toISOString();
+        this.state.counters.failed += 1;
+        this.state.consecutiveExecutionFailures += 1;
+        this.pushAlert('critical', 'Run failed after retries', { runId: run.id, errors: run.errors });
+        if (this.state.consecutiveExecutionFailures >= 3) this.stop('repeated_failures');
+      }
 
-    this.state.runs.push(run);
-    this.state.runs = this.state.runs.slice(-200);
-    this.state.health.lastHeartbeatAt = new Date().toISOString();
-    this.auditLog('run.completed', run);
-    return run;
+      this.state.runs.push(run);
+      this.state.runs = this.state.runs.slice(-200);
+      this.state.health.lastHeartbeatAt = new Date().toISOString();
+      this.auditLog('run.completed', run);
+      return run;
+    } finally {
+      this.runInProgress = false;
+    }
   }
 
   estimateApr(allocations) {

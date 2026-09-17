@@ -34,6 +34,7 @@ function htmlDashboard() {
 </head>
 <body>
   <h2>Merkl Autopilot Control</h2>
+  <label for="key">API key</label>
   <div class="row"><input id="key" placeholder="API key" style="width:100%"/></div>
   <div class="row">
     <button onclick="act('/start')">Start</button>
@@ -93,7 +94,10 @@ function createServer(controller, config) {
       }
 
       if (req.method === 'GET' && req.url === '/health') {
-        const ready = !controller.state.paused && controller.state.health.status === 'running';
+        const ready =
+          controller.state.health.status === 'running' &&
+          controller.state.startedAt !== null &&
+          controller.state.paused === false;
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(
           JSON.stringify({
@@ -157,7 +161,7 @@ function createServer(controller, config) {
       const alertAckMatch = req.method === 'POST' ? req.url.match(/^\/alerts\/([^/]+)\/ack$/) : null;
       if (alertAckMatch) {
         if (!requireRole(req, res, ['admin'])) return;
-        const id = alertAckMatch[1];
+        const id = decodeURIComponent(alertAckMatch[1]);
         const ok = controller.acknowledgeAlert(id);
         res.writeHead(ok ? 200 : 404, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ok }));
@@ -168,8 +172,12 @@ function createServer(controller, config) {
       res.end(JSON.stringify({ error: 'not_found' }));
     } catch (error) {
       const statusCode = error.statusCode || (error.message && error.message.startsWith('mode must') ? 400 : 500);
+      const responseError = statusCode >= 500 ? 'internal_server_error' : error.message;
+      if (statusCode >= 500 && typeof controller.auditLog === 'function') {
+        controller.auditLog('server.error', { message: error.message, stack: error.stack });
+      }
       res.writeHead(statusCode, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: error.message }));
+      res.end(JSON.stringify({ error: responseError }));
     }
   }
 

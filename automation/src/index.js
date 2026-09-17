@@ -9,6 +9,7 @@ function main() {
   const controller = new AutopilotController(config);
 
   controller.setMode(process.env.AUTOPILOT_MODE || 'manual');
+  controller.start();
 
   const server = createServer(controller, config);
   server.listen(config.api.port, config.api.host, () => {
