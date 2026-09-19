@@ -50,6 +50,60 @@ Run the complete test suite:
 forge test
 ```
 
+## Autopilot Agent Service (Daily Revenue Workflow)
+
+This repository now includes an off-chain autopilot service in `/automation` that runs a Merkl-focused daily incentive strategy with:
+
+- Opportunity Agent
+- Allocation Agent
+- Guardrail Agent
+- Execution Agent
+
+It includes a daily scheduler, retries, audit logs, pause/manual override, and a secure remote control API with a mobile-friendly dashboard.
+It also includes bounded adaptive learning (confidence tuning and cooldown-based self-correction) for strategy evolution.
+
+### Quick start
+
+1. Create your env file:
+
+```bash
+cp .env.example .env
+```
+
+2. Configure:
+
+- `AUTOPILOT_ADMIN_API_KEYS`
+- `AUTOPILOT_VIEWER_API_KEYS`
+- strategy actions in `/automation/config/strategies.example.json` using structured `{ "file": "...", "args": [...] }` commands (or set `AUTOPILOT_STRATEGIES_PATH` to your own file)
+
+3. Start the service:
+
+```bash
+yarn autopilot:start
+```
+
+4. Open the dashboard:
+
+```text
+http://<server-ip>:8787
+```
+
+Use your API key in the dashboard and control start/stop/run-now/mode from iPhone, iPad, or Windows browser.
+
+### Endpoints
+
+- `GET /health`
+- `GET /status` (viewer/admin)
+- `GET /runs` (viewer/admin)
+- `POST /start` (admin)
+- `POST /stop` (admin)
+- `POST /run-now` (admin)
+- `POST /mode` with `{ "mode": "manual" | "auto" }` (admin)
+- `POST /alerts/:id/ack` (admin)
+- `POST /learning/reset` (admin)
+
+Authentication is via `x-api-key` header. Use separate admin and viewer keys.
+
 ## Deploying
 
 ### Simulate deployment (dry run)

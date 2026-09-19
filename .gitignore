@@ -50,3 +50,5 @@ bin
 /zkout
 /cache-forge
 /transactions
+automation/state/*.log
+automation/state/*.json

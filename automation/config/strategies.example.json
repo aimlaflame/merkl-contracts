@@ -1,0 +1,50 @@
+[
+  {
+    "id": "eth-uniswap-merkl",
+    "chainId": 1,
+    "protocol": "uniswap-v3",
+    "campaign": "merkl-eth-usdc",
+    "expectedAprBps": 1800,
+    "riskScore": 30,
+    "maxCapitalUsd": 5000,
+    "enabled": true,
+    "action": {
+      "type": "command",
+      "file": "yarn",
+      "args": [
+        "foundry:script",
+        "scripts/Distributor.s.sol",
+        "--rpc-url",
+        "mainnet",
+        "--sig",
+        "run(bytes32,bytes32)",
+        "0x0",
+        "0x0"
+      ]
+    }
+  },
+  {
+    "id": "arb-aerodrome-merkl",
+    "chainId": 42161,
+    "protocol": "aerodrome",
+    "campaign": "merkl-arb-usdc",
+    "expectedAprBps": 1400,
+    "riskScore": 45,
+    "maxCapitalUsd": 4000,
+    "enabled": true,
+    "action": {
+      "type": "command",
+      "file": "yarn",
+      "args": [
+        "foundry:script",
+        "scripts/Distributor.s.sol",
+        "--rpc-url",
+        "arbitrum",
+        "--sig",
+        "run(bytes32,bytes32)",
+        "0x0",
+        "0x0"
+      ]
+    }
+  }
+]
